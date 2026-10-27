@@ -1,0 +1,59 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# A vessel between an inlet and an outlet pressure: an inlet segment with inertance and a viscous loss, a compliance
+# with a viscous wall, an outlet inertance into a stiffening (bladder-like) store, which empties through a one-way
+# resistance against an opposing pressure.
+
+:vessel_inertance
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:hydraulic.ttl ;
+    bgf:hasBondElement :P_in, :I_in, :q_v, :I_out, :q_b, :R_void, :P_out .
+
+:P_in
+    a bgf:HydraulicPotential ;
+    bgf:hasValue "13 J/L"^^cdt:ucum .
+
+:I_in
+    a bgf:ResistiveHydraulicInertanceNode ;
+    bgf:hasValue "0.1 L/s"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "I" ; bgf:hasValue "0.01 J.s2/L2"^^cdt:ucum ] ,
+                       [ bgf:varName "R" ; bgf:hasValue "2 J.s/L2"^^cdt:ucum ] .
+
+:q_v
+    a bgf:ViscoelasticHydraulicComplianceNode ;
+    bgf:hasValue "1.2 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.1 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.5 L"^^cdt:ucum ] ,
+                       [ bgf:varName "R_v" ; bgf:hasValue "0.1 J.s/L2"^^cdt:ucum ] .
+
+:I_out
+    a bgf:HydraulicInertanceNode ;
+    bgf:hasValue "0.05 L/s"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "I" ; bgf:hasValue "0.05 J.s2/L2"^^cdt:ucum ] .
+
+:q_b
+    a bgf:HydraulicElasticStorageNode ;
+    bgf:hasValue "0.2 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "E" ; bgf:hasValue "0.1 J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_hat" ; bgf:hasValue "0.05 L"^^cdt:ucum ] ,
+                       [ bgf:varName "q_bar" ; bgf:hasValue "0.6 L"^^cdt:ucum ] .
+
+:R_void
+    a bgf:RectifyingHydraulicResistanceNode ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "0.5 L2.s-1.J-1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_0" ; bgf:hasValue "0.1 J/L"^^cdt:ucum ] .
+
+:P_out
+    a bgf:HydraulicPotential ;
+    bgf:hasValue "0 J/L"^^cdt:ucum .
+
+:b1 bgf:hasSource :P_in ; bgf:hasTarget :I_in .
+:b2 bgf:hasSource :I_in ; bgf:hasTarget :q_v .
+:b3 bgf:hasSource :q_v ; bgf:hasTarget :I_out .
+:b4 bgf:hasSource :I_out ; bgf:hasTarget :q_b .
+:b5 bgf:hasSource :q_b ; bgf:hasTarget :R_void .
+:b6 bgf:hasSource :R_void ; bgf:hasTarget :P_out .

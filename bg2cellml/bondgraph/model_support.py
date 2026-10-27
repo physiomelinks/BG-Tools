@@ -33,7 +33,7 @@ from ..rdf import Literal, NamedNode, namedNode
 from ..rdf import isLiteral, isNamedNode, literal_as_string, uri_fragment
 from ..units import Value
 
-from .framework_support import BondgraphElementTemplate, CompositeTemplate
+from .framework_support import BondgraphElementTemplate, CompositeTemplate, ElementTemplate
 from .framework_support import Domain, NamedPortVariable, PowerPort, Variable
 from .framework_support import ONENODE_JUNCTION, TRANSFORM_JUNCTION, ZERONODE_JUNCTION
 from .framework_support import FLOW_SOURCE, POTENTIAL_SOURCE
@@ -212,7 +212,7 @@ class BondgraphElement(ModelElement):
             if self.__element_class == QUANTITY_STORE:
                 self.__implied_junction = ZERONODE_JUNCTION
             elif self.__element_class == FLOW_STORE:
-                self.__implied_junction = ZERONODE_JUNCTION
+                self.__implied_junction = ONENODE_JUNCTION
             elif self.__element_class in [RESISTANCE, REACTION]:
                 self.__implied_junction = ONENODE_JUNCTION
         elif self.__element_class == POTENTIAL_SOURCE:
@@ -254,7 +254,16 @@ class BondgraphElement(ModelElement):
                     continue
             self.__variable_values.update(variable_values)
 
+        # Signal inputs, set by signal bonds (bgf:signalInput), and modulations, a parameter scaled by a signal
+        # (bgf:modulates): (parameter, signal, exponent)
+        self.__signal_inputs: dict[str, Variable] = {name: variable.copy(suffix=self.symbol, domain=self.__domain)
+                                                     for name, variable in element_template.signal_inputs.items()}
+        self.__connected_inputs: dict[str, Variable] = {}
+        self.__modulations: list[tuple[str, Variable, int]] = []
+
+        self.__intrinsic_name: str|None = None
         if (intrinsic_var := element_template.intrinsic_variable) is not None:
+            self.__intrinsic_name = intrinsic_var.name
             self.__variables[intrinsic_var.name] = intrinsic_var.copy(suffix=self.symbol, domain=self.__domain)
             self.__intrinsic_variable = self.__variables[intrinsic_var.name]
             if self.__element_class == FLOW_SOURCE:
@@ -315,6 +324,42 @@ class BondgraphElement(ModelElement):
         return self.__element_class
 
     @property
+    def signal_inputs(self) -> dict[str, Variable]:
+        '''The template's signal inputs (as declared, with their units), in order of their names.'''
+        return self.__signal_inputs
+
+    @property
+    def connected_inputs(self) -> dict[str, Variable]:
+        '''The variables signal bonds bring to the signal inputs.'''
+        return self.__connected_inputs
+
+    @property
+    def modulations(self) -> list[tuple[str, Variable, int]]:
+        return self.__modulations
+
+    def connect_signal(self, name: str, variable: Variable):
+    #======================================================
+        self.__connected_inputs[name] = variable
+
+    def add_modulation(self, name: str, signal: Variable, exponent: int):
+    #====================================================================
+        self.__modulations.append((name, signal, exponent))
+
+    def can_modulate(self, name: str) -> bool:
+    #=========================================
+        return (name in self.__variables and name not in self.__port_variable_names) or name == self.__intrinsic_name
+
+    def signal_variable(self, name: str|None) -> Variable|None:
+    #==========================================================
+        '''The element's variable a signal bond carries: the one named, else a store's quantity, a source's value,
+        and a flow store's, resistance's or reaction's flow.'''
+        if name is not None:
+            return self.__variables.get(name)
+        if self.__element_class in [QUANTITY_STORE, FLOW_SOURCE, POTENTIAL_SOURCE]:
+            return self.__intrinsic_variable
+        return self.__flow
+
+    @property
     def flow(self) -> Variable|None:
         return self.__flow
 
@@ -349,6 +394,28 @@ class BondgraphElement(ModelElement):
     @property
     def variables(self) -> dict[str, Variable]:
         return self.__variables
+
+    def __modulate_source_value(self):
+    #=================================
+        # A flow or potential source whose value is modulated: its value v becomes v0 (a parameter holding the
+        # source's value) times the signals
+        if (self.__element_class not in [FLOW_SOURCE, POTENTIAL_SOURCE] or self.__intrinsic_name is None
+         or not any(name == self.__intrinsic_name for name, _, _ in self.__modulations)):
+            return
+        if self.__constitutive_relation is not None:
+            self.report_issue(f'Source {self.pretty_name} is given by an expression and cannot be modulated')
+            return
+        name = self.__intrinsic_name
+        base_name = f'{name}0'
+        intrinsic = self.__intrinsic_variable
+        base = Variable(self, f'{base_name}_{self.symbol}', units=intrinsic.units, type=intrinsic.type)
+        if intrinsic.value is not None:
+            base.set_value(intrinsic.value)
+            intrinsic.clear_value()
+        self.__variables[base_name] = base
+        self.__constitutive_relation = MathML.from_string(
+            f'<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>{name}</ci><ci>{base_name}</ci></apply></math>')
+        self.__modulations = [(base_name if n == name else n, s, e) for n, s, e in self.__modulations]
 
     # Substitute variable symbols into the constitutive relation
     def assign_variables(self, bond_graph: nx.DiGraph):
@@ -388,10 +455,28 @@ class BondgraphElement(ModelElement):
                 else:
                     self.__variables[var_name] = element.__intrinsic_variable
 
+        for name in self.__signal_inputs:
+            if name not in self.__connected_inputs:
+                self.report_issue(f'Signal input {name} of element {self.pretty_name} has no signal bond')
+        self.__modulate_source_value()
+
         if self.__constitutive_relation is not None:
             for name, variable in self.__variables.items():
                 self.__constitutive_relation.substitute(name, variable.symbol,
                                                         missing_ok=(name in self.__port_variable_names))
+            for name, variable in self.__connected_inputs.items():
+                try:
+                    self.__constitutive_relation.substitute(name, variable.symbol)
+                except ValueError as error:
+                    self.report_issue(f'Signal input {name} of {self.pretty_name}: {error}')
+            for name, signal, exponent in self.__modulations:
+                if (variable := self.__variables.get(name)) is None:
+                    self.report_issue(f'Element {self.pretty_name} has no parameter {name} to modulate')
+                    continue
+                try:
+                    self.__constitutive_relation.scale(variable.symbol, signal.symbol, exponent)
+                except ValueError as error:
+                    self.report_issue(f'Modulating {name} of {self.pretty_name}: {error}')
             for eqn in self.__constitutive_relation.equations:
                 if eqn.lhs == self.__flow_symbol:
                     self.__flow_expression = eqn.rhs
@@ -467,6 +552,178 @@ class BondgraphElement(ModelElement):
                 if port_expr is not None:
                     flow = sympy.Symbol(port.flow.variable.symbol)
                     self.__equations.append(Equation(flow, port_expr))
+
+#===============================================================================
+#===============================================================================
+
+class SignalBlock(ModelElement):
+    '''A signal block (bgf:SignalBlock): one output, named as the block, computed from its signal inputs and
+    parameters by its template's relation. Its variables' units may be its signals' (see `resolve_units`).'''
+    def __init__(self, model: 'BondgraphModel', id: str, template: ElementTemplate,
+                        parameter_values: dict[str, VariableValue], value: Value|None,
+                        symbol: str|None=None, label: str|None=None):
+        super().__init__(model, id, symbol=symbol, label=label)
+        self.__template = template
+        self.__type = template.uri.value
+        self.__relation = template.constitutive_relation.copy() if template.constitutive_relation is not None else None
+        self.__parameters = {name: variable.copy(suffix=self.symbol)
+                             for name, variable in template.parameters.items()}
+        self.__inputs = {name: variable.copy(suffix=self.symbol)
+                         for name, variable in template.signal_inputs.items()}
+        self.__connected: dict[str, Variable] = {}
+        output = template.signal_output
+        if output is None:
+            model.report_issue(f'Signal block template {template.uri.value} has no output')
+            self.__output_name = 'y'
+            self.__output = Variable(self, self.symbol, free=True)
+        else:
+            self.__output_name = output.name
+            self.__output = Variable(self, self.symbol, units=output.units if output.units_known else None,
+                                     units_of=output.units_of, free=output.free)
+        if value is not None:
+            self.__output.set_value(value)
+        for name, variable in self.__parameters.items():
+            if (given := parameter_values.get(name)) is None:
+                model.report_issue(f'Missing value for parameter {name} of block {self.pretty_name}')
+                continue
+            if given.symbol is not None:
+                variable.set_symbol(given.symbol)
+            if isLiteral(given.value):
+                variable.set_value(Value.from_literal(given.value))      # pyright: ignore[reportArgumentType]
+            else:
+                model.report_issue(f'Parameter {name} of block {self.pretty_name} must be a value')
+        self.__equations: list[Equation] = []
+        self.__modulations: list[tuple[str, Variable, int]] = []
+
+    @classmethod
+    def for_model(cls, model: 'BondgraphModel', uri: NamedNode, template: ElementTemplate,
+    #=====================================================================================
+                    symbol: str|None, label: str|None):
+        parameter_values: dict[str, VariableValue] = {row['name'].value:
+                                                        VariableValue(row['value'], row.get('symbol'))  # pyright: ignore[reportArgumentType]
+            for row in model.sparql_query(ELEMENT_PARAMETER_VALUES.replace('%ELEMENT%', uri.value))
+        }
+        value: Value|None = None
+        for row in model.sparql_query(ELEMENT_STATE_VALUE.replace('%ELEMENT%', uri.value)):
+            if isLiteral(row['value']):
+                value = Value.from_literal(row['value'])          # pyright: ignore[reportArgumentType]
+                break
+        return cls(model, uri.value, template, parameter_values, value, symbol=symbol, label=label)
+
+    @property
+    def domain(self):
+        return self.__template.domain
+
+    @property
+    def equations(self) -> list[Equation]:
+        return self.__equations
+
+    @property
+    def inputs(self) -> dict[str, Variable]:
+        return self.__inputs
+
+    @property
+    def connected_inputs(self) -> dict[str, Variable]:
+        return self.__connected
+
+    @property
+    def output(self) -> Variable:
+        return self.__output
+
+    @property
+    def template(self) -> ElementTemplate:
+        return self.__template
+
+    @property
+    def type(self) -> str:
+        return self.__type
+
+    @property
+    def variables(self) -> dict[str, Variable]:
+        '''The block's own variables, its parameters and output (its inputs are their sources').'''
+        return {**self.__parameters, self.__output_name: self.__output}
+
+    def connect_signal(self, name: str, variable: Variable):
+    #======================================================
+        self.__connected[name] = variable
+
+    def can_modulate(self, name: str) -> bool:
+    #=========================================
+        return name in self.__parameters
+
+    def __local(self, name: str) -> Variable|None:
+    #=============================================
+        if name == self.__output_name:
+            return self.__output
+        if name in self.__parameters:
+            return self.__parameters[name]
+        return self.__connected.get(name)
+
+    def resolve_units(self) -> bool:
+    #===============================
+        '''Give variables whose units are another's (bgf:unitsOf) those units, either way round, and a source of
+        unknown units connected to an input of fixed units the input's. Returns whether any units were found.'''
+        progress = False
+        declared = [(self.__output_name, self.__output.units_of)]
+        declared += [(name, variable.units_of) for name, variable in self.__parameters.items()]
+        declared += [(name, variable.units_of) for name, variable in self.__inputs.items()]
+        for name, units_of in declared:
+            if units_of is None:
+                continue
+            a, b = self.__local(name), self.__local(units_of)
+            if a is None or b is None:
+                continue
+            if a.units_known and not b.units_known:
+                b.set_units(a.units)
+                progress = True
+            elif b.units_known and not a.units_known:
+                a.set_units(b.units)
+                progress = True
+        for name, variable in self.__inputs.items():
+            source = self.__connected.get(name)
+            if source is not None and variable.units_known and not source.units_known:
+                source.set_units(variable.units)
+                progress = True
+        return progress
+
+    def check_and_build(self):
+    #=========================
+        for name, variable in self.__inputs.items():
+            if (source := self.__connected.get(name)) is None:
+                self.report_issue(f'Signal input {name} of block {self.pretty_name} has no signal bond')
+            elif variable.units_known and source.units_known and not source.units.same_scale(variable.units):
+                self.report_issue(f'Signal input {name} of block {self.pretty_name} has units {source.units}, '
+                                  f'not {variable.units}')
+        for name, variable in self.variables.items():
+            if not variable.units_known:
+                self.report_issue(f'Units of {name} of block {self.pretty_name} are unknown: give its value units')
+            elif (issue := variable.settle_value()) is not None:
+                self.report_issue(f'Block {self.pretty_name}: {issue}')
+        if self.__relation is None:
+            return
+        try:
+            self.__relation.substitute(self.__output_name, self.__output.symbol, missing_ok=True)
+            for name, variable in self.__parameters.items():
+                self.__relation.substitute(name, variable.symbol)
+            for name, variable in self.__connected.items():
+                self.__relation.substitute(name, variable.symbol)
+        except ValueError as error:
+            self.report_issue(f'Block {self.pretty_name}: {error}')
+            return
+        for name, signal, exponent in self.__modulations:
+            try:
+                self.__relation.scale(self.__parameters[name].symbol, signal.symbol, exponent)
+            except ValueError as error:
+                self.report_issue(f'Modulating {name} of block {self.pretty_name}: {error}')
+        self.__equations = self.__relation.equations
+
+    @property
+    def modulations(self) -> list[tuple[str, Variable, int]]:
+        return self.__modulations
+
+    def add_modulation(self, name: str, signal: Variable, exponent: int):
+    #====================================================================
+        self.__modulations.append((name, signal, exponent))
 
 #===============================================================================
 #===============================================================================
@@ -659,6 +916,10 @@ class BondgraphJunction(ModelElement):
                     if self.__type == ONENODE_JUNCTION:
                         if node_dict.get('port_type') in [RESISTANCE, REACTION]:
                             equation_lhs.append(sympy.Symbol(port.potential.variable.symbol))
+                    elif self.__type == ZERONODE_JUNCTION:
+                        if (node_dict.get('port_type') == QUANTITY_STORE and 'element' in node_dict
+                        and node_dict['element'].implied_junction is None):
+                            equation_lhs.append(sympy.Symbol(port.flow.variable.symbol))
 
             for node in bond_graph.predecessors(self.uri.value):
                 update_state_equalities(node, True)

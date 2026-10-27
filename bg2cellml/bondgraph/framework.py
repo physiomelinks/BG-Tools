@@ -29,14 +29,15 @@ from ..rdf.types import Triple
 from ..utils import Issue
 
 from .model import BondgraphModel
-from .namespaces import NAMESPACES
+from .namespaces import BGF, NAMESPACES
 
 from .framework_support import BondgraphElementTemplate, CompositeTemplate, ElementTemplate
-from .framework_support import Domain, JunctionStructure
+from .framework_support import Domain, JunctionStructure, SignalDomain
 
 #===============================================================================
 
 BGF_ONTOLOGY_URI = 'https://bg-rdf.org/ontologies/bondgraph-framework'
+BGF_SIGNAL_BLOCK = BGF.SignalBlock
 BGF_TEMPLATE_URI_PREFIX = 'https://bg-rdf.org/templates/'
 
 _BGF_TEMPLATE_NAMES = [
@@ -44,6 +45,7 @@ _BGF_TEMPLATE_NAMES = [
     'electrical.ttl',
     'hydraulic.ttl',
     'mechanical.ttl',
+    'signal.ttl',
 ]
 
 BGF_TEMPLATE_URIS: dict[str, str] = {
@@ -115,6 +117,24 @@ ELEMENT_TEMPLATE_DEFINITIONS = """
         OPTIONAL { ?uri rdfs:label ?label }
     } ORDER BY ?uri"""
 
+SIGNAL_DOMAIN_QUERY = """
+    SELECT DISTINCT ?domain ?label
+    WHERE {
+        ?domain a bgf:SignalDomain .
+        OPTIONAL { ?domain rdfs:label ?label }
+    } ORDER BY ?domain"""
+
+SIGNAL_BLOCK_TEMPLATE_DEFINITIONS = """
+    SELECT DISTINCT ?uri ?label ?domain ?relation
+    WHERE {
+        ?uri
+            a bgf:ElementTemplate ;
+            rdfs:subClassOf bgf:SignalBlock ;
+            bgf:hasDomain ?domain .
+        OPTIONAL { ?uri bgf:constitutiveRelation ?relation }
+        OPTIONAL { ?uri rdfs:label ?label }
+    } ORDER BY ?uri"""
+
 JUNCTION_STRUCTURES = """
     SELECT DISTINCT ?junction ?label
     WHERE {
@@ -162,7 +182,9 @@ class BondgraphFramework:
     #======================================================
         self.__graph = RdfGraph(NAMESPACES)
         self.__element_templates: dict[str, ElementTemplate] = {}
+        self.__block_templates: dict[str, ElementTemplate] = {}
         self.__domains: dict[str, Domain] = {}
+        self.__signal_domains: dict[str, SignalDomain] = {}
         self.__element_domains: dict[tuple[str, str], ElementTemplate] = {}
         self.__junctions: dict[str, JunctionStructure] = {}
         self.__composite_elements: dict[str, CompositeTemplate] = {}
@@ -212,6 +234,20 @@ class BondgraphFramework:
             self.__element_templates[cast(NamedNode, row['uri']).value] = ElementTemplate.from_rdf_graph(
                                             graph, row['uri'], row['element_class'], # pyright: ignore[reportArgumentType]
                                             row.get('label'), domain, row.get('relation'))   # pyright: ignore[reportArgumentType]
+        self.__signal_domains.update({cast(NamedNode, row['domain']).value: SignalDomain.from_rdf_graph(
+                                        graph, row['domain'], row.get('label'))   # pyright: ignore[reportArgumentType]
+                                      for row in graph.query(SIGNAL_DOMAIN_QUERY)})
+        for row in graph.query(SIGNAL_BLOCK_TEMPLATE_DEFINITIONS):
+            # ?uri ?label ?domain ?relation
+            if (signal_domain := self.__signal_domains.get(cast(NamedNode, row['domain']).value)) is None:
+                self.report_issue(f"Unknown signal domain {row['domain']} for {row['uri']} block")
+                continue
+            try:
+                self.__block_templates[cast(NamedNode, row['uri']).value] = ElementTemplate.from_rdf_graph(
+                                            graph, row['uri'], BGF_SIGNAL_BLOCK,                  # pyright: ignore[reportArgumentType]
+                                            row.get('label'), signal_domain, row.get('relation'))  # pyright: ignore[reportArgumentType]
+            except Issue as issue:
+                self.report_issue(str(issue))
         self.__element_domains.update({
             (element.element_class, element.domain.uri.value): element
                 for element in self.__element_templates.values() if element.domain is not None
@@ -235,6 +271,10 @@ class BondgraphFramework:
             return self.__element_templates.get(element_type.value)
         else:
             return self.__element_domains.get((element_type.value, domain_uri.value))
+
+    def block_template(self, block_type: NamedNode) -> ElementTemplate|None:
+    #=======================================================================
+        return self.__block_templates.get(block_type.value)
 
     def junction(self, uri: str) -> JunctionStructure|None:
     #======================================================

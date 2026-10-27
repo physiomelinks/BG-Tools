@@ -84,6 +84,9 @@ def sympy_from_mathml(node: etree.Element) -> sympy.Expr:
         return sympy.sin(sympy_from_mathml(children[1]))
     elif operator == MATHML_NS.abs:
         return sympy.Abs(sympy_from_mathml(children[1]))
+    elif operator in (MATHML_NS.max, MATHML_NS.min):
+        args = [sympy_from_mathml(child) for child in children[1:] if not isinstance(child, etree._Comment)]
+        return (sympy.Max if operator == MATHML_NS.max else sympy.Min)(*args)
     elif operator == MATHML_NS.root:
         # <root/> with an optional <degree> (a square root without one)
         degree = sympy.Integer(2)
@@ -159,6 +162,29 @@ class MathML:
     def copy(self) -> 'MathML':
     #==========================
         return MathML(deepcopy(self.__mathml))
+
+    def scale(self, symbol: str, factor: str, exponent: int=1):
+    #===========================================================
+        '''Replace each use of `symbol` by `symbol*factor^exponent` (`symbol/factor` when the exponent is -1).'''
+        if symbol not in self.__variables:
+            raise ValueError(f'Variable {symbol} not in formulae, cannot scale it')
+        for element in self.__variables[symbol]:
+            product = etree.Element(MATHML_NS.apply)
+            etree.SubElement(product, MATHML_NS.divide if exponent == -1 else MATHML_NS.times)
+            element.addprevious(product)
+            product.append(element)         # moves the variable into the product
+            signal = etree.SubElement(product, MATHML_NS.ci)
+            signal.text = factor
+            if exponent not in (1, -1):
+                power = etree.Element(MATHML_NS.apply)
+                etree.SubElement(power, MATHML_NS.power)
+                product.replace(signal, power)
+                power.append(signal)
+                etree.SubElement(power, MATHML_NS.cn).text = str(exponent)
+        self.__variables = defaultdict(list)
+        for element in self.__mathml.findall(f'.//{MATHML_NS.ci}'):
+            self.__variables[element.text].append(element)
+        self.__build_equations()
 
     def substitute(self, name: str, symbol: str, missing_ok=False):
     #==============================================================

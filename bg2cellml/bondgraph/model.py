@@ -32,9 +32,9 @@ from ..rdf import ResultRow, RdfGraph, Triple
 from ..rdf import isBlankNode, isNamedNode, literal_as_string, NamedNode
 from ..utils import Issue
 
-from .framework_support import BondgraphElementTemplate
+from .framework_support import BondgraphElementTemplate, Variable
 from .framework_support import Domain, REACTION, TRANSFORM_JUNCTION, TRANSFORM_PORT_IDS
-from .model_support import BondgraphBond, BondgraphElement, BondgraphJunction
+from .model_support import BondgraphBond, BondgraphElement, BondgraphJunction, SignalBlock
 from .model_support import make_element_port_id, make_symbolic_name
 from .namespaces import BGF, NAMESPACES, get_curie
 from .utils import clean_name, Labelled, optional_integer, pretty_name, pretty_uri
@@ -77,7 +77,30 @@ MODEL_BONDS = """
         OPTIONAL { ?powerBond bgf:hasTarget ?target }
         OPTIONAL { ?powerBond rdfs:label ?label }
         OPTIONAL { ?powerBond bgf:bondCount ?bondCount }
+        FILTER NOT EXISTS { ?powerBond a bgf:SignalBond }
     }"""
+
+MODEL_BLOCKS = """
+    SELECT DISTINCT ?uri ?type ?label ?symbol
+    WHERE {
+        <%MODEL%> bgf:hasSignalBlock ?uri .
+        ?uri a ?type .
+        OPTIONAL { ?uri bgf:hasSymbol ?symbol }
+        OPTIONAL { ?uri rdfs:label ?label }
+    } ORDER BY ?uri"""
+
+SIGNAL_BONDS = """
+    SELECT DISTINCT ?bond ?source ?target ?variable ?input ?modulates ?exponent
+    WHERE {
+        ?bond
+            a bgf:SignalBond ;
+            bgf:hasSource ?source ;
+            bgf:hasTarget ?target .
+        OPTIONAL { ?bond bgf:signalVariable ?variable }
+        OPTIONAL { ?bond bgf:signalInput ?input }
+        OPTIONAL { ?bond bgf:modulates ?modulates }
+        OPTIONAL { ?bond bgf:modulationExponent ?exponent }
+    } ORDER BY ?bond"""
 
 #===============================================================================
 #===============================================================================
@@ -97,6 +120,7 @@ BONDGRAPH_BONDS = """
         ?uri
             bgf:hasSource ?source ;
             bgf:hasTarget ?target .
+        FILTER NOT EXISTS { ?uri a bgf:SignalBond }
     }"""
 
 #===============================================================================
@@ -110,6 +134,7 @@ class BondgraphModel(Labelled):   ## Component ??
         self.__debug = debug
         self.__elements: dict[str, BondgraphElement] = {}
         self.__junctions: dict[str, BondgraphJunction] = {}
+        self.__blocks: dict[str, SignalBlock] = {}
         self.__symbolic_names: set[str] = set()
         self.__bonds: list[BondgraphBond] = []
         self.__graph = nx.DiGraph()
@@ -181,7 +206,18 @@ class BondgraphModel(Labelled):   ## Component ??
             assert element_type is not None
             self.report_issue(f'{get_curie(element_type)} element {element_name} is not instantiated 2')
 
-        if len(self.__elements) == 0:
+        for row in self.__rdf_graph.query(MODEL_BLOCKS.replace('%MODEL%', self.uri.value)):
+            # ?uri ?type ?label ?symbol
+            block_uri = row['uri'].value                                                # pyright: ignore[reportOptionalMemberAccess]
+            if block_uri in self.__blocks:
+                continue
+            if (template := self.__framework.block_template(row['type'])) is None:     # pyright: ignore[reportArgumentType]
+                continue
+            symbol = self.__unique_name(make_symbolic_name(row), block_uri)
+            self.__blocks[block_uri] = SignalBlock.for_model(self, row['uri'], template,  # pyright: ignore[reportArgumentType]
+                                                             symbol, literal_as_string(row.get('label')))  # pyright: ignore[reportArgumentType]
+
+        if len(self.__elements) == 0 and len(self.__blocks) == 0:
             self.report_issue(f'Model {(pretty_uri(self.uri))} has no valid elements')
             return
 
@@ -238,7 +274,10 @@ class BondgraphModel(Labelled):   ## Component ??
         self.__make_bond_network()
         self.__check_and_assign_domains_to_bond_network()
         self.__assign_junction_domain_and_variables()
+        self.__connect_signals()
         self.__assign_element_variables_and_equations()
+        for block in self.__blocks.values():
+            block.check_and_build()
 
         self.__equations: list[Equation] = []
         for element in self.__elements.values():
@@ -254,6 +293,10 @@ class BondgraphModel(Labelled):   ## Component ??
             self.__equations.extend(equations)
             for eq in equations:
                 eq.provenance = 'js'
+        for block in self.__blocks.values():
+            self.__equations.extend(block.equations)
+            for eq in block.equations:
+                eq.provenance = 'cr'
 
         if self.__debug:
             print('Elements:')
@@ -311,6 +354,81 @@ class BondgraphModel(Labelled):   ## Component ??
     @property
     def elements(self) -> list[BondgraphElement]:
         return list(self.__elements.values())
+
+    @property
+    def signal_blocks(self) -> list[SignalBlock]:
+        return list(self.__blocks.values())
+
+    def __signal_source(self, source_id: str, variable_name: str|None) -> Variable|None:
+    #==================================================================================
+        if (block := self.__blocks.get(source_id)) is not None:
+            if variable_name is not None and variable_name not in (block.template.signal_output.name    # pyright: ignore[reportOptionalMemberAccess]
+                                                                   if block.template.signal_output else 'y',):
+                self.report_issue(f'Signal from block {block.pretty_name} names {variable_name}, not its output')
+            return block.output
+        if (junction := self.__junctions.get(source_id)) is not None:
+            if junction.type == TRANSFORM_JUNCTION:
+                self.report_issue(f'A signal cannot come from transform node {junction.pretty_name}')
+                return None
+            return junction.variables.get('')
+        if (element := self.__elements.get(source_id)) is not None:
+            if (variable := element.signal_variable(variable_name)) is None:
+                self.report_issue(f'Element {element.pretty_name} has no variable {variable_name} for a signal')
+            return variable
+        self.report_issue(f'Signal source {pretty_uri(source_id)} is not an element, junction or signal block')
+
+    def __connect_signals(self):
+    #===========================
+        # Each signal bond sets a signal input of its target, or scales one of its parameters (bgf:modulates)
+        targets: dict[str, BondgraphElement|SignalBlock] = {**self.__elements, **self.__blocks}
+        for row in self.__rdf_graph.query(SIGNAL_BONDS):
+            # ?bond ?source ?target ?variable ?input ?modulates ?exponent
+            bond = row['bond'].value                                            # pyright: ignore[reportOptionalMemberAccess]
+            if (target := targets.get(row['target'].value)) is None:            # pyright: ignore[reportOptionalMemberAccess]
+                self.report_issue(f'Signal bond {pretty_uri(bond)} has no element or block as its target')
+                continue
+            variable_name = literal_as_string(row.get('variable'))             # pyright: ignore[reportArgumentType]
+            if (signal := self.__signal_source(row['source'].value, variable_name)) is None:  # pyright: ignore[reportOptionalMemberAccess]
+                continue
+            if (modulates := literal_as_string(row.get('modulates'))) is not None:  # pyright: ignore[reportArgumentType]
+                if not target.can_modulate(modulates):
+                    self.report_issue(f'Signal bond {pretty_uri(bond)}: {target.pretty_name} has no parameter {modulates}')
+                    continue
+                exponent = optional_integer(row.get('exponent'), None)                       # pyright: ignore[reportArgumentType]
+                if exponent is None and row.get('exponent') is not None:
+                    exponent = int(float(row['exponent'].value))                             # pyright: ignore[reportOptionalMemberAccess]
+                target.add_modulation(modulates, signal, exponent if exponent is not None else 1)
+                continue
+            inputs = target.inputs if isinstance(target, SignalBlock) else target.signal_inputs
+            if (name := literal_as_string(row.get('input'))) is None:          # pyright: ignore[reportArgumentType]
+                free = [n for n in inputs if n not in target.connected_inputs]
+                if len(free) == 0:
+                    self.report_issue(f'Signal bond {pretty_uri(bond)}: {target.pretty_name} has no free signal input')
+                    continue
+                name = free[0]
+            elif name not in inputs:
+                self.report_issue(f'Signal bond {pretty_uri(bond)}: {target.pretty_name} has no signal input {name}')
+                continue
+            elif name in target.connected_inputs:
+                self.report_issue(f'Signal input {name} of {target.pretty_name} has two signal bonds')
+                continue
+            target.connect_signal(name, signal)
+        # Units: a block's variables may have its signals' units
+        while any([block.resolve_units() for block in self.__blocks.values()]):
+            pass
+        for element in self.__elements.values():
+            for name, source in element.connected_inputs.items():
+                declared = element.signal_inputs[name]
+                if not source.units_known:
+                    self.report_issue(f'Units of the signal to {name} of {element.pretty_name} are unknown')
+                elif not source.units.same_scale(declared.units):
+                    self.report_issue(f'Signal input {name} of {element.pretty_name} has units {source.units}, '
+                                      f'not {declared.units}')
+        for target in targets.values():
+            for name, signal, _ in target.modulations:
+                if signal.units_known and not signal.units.is_dimensionless():
+                    self.report_issue(f'The signal modulating {name} of {target.pretty_name} has units '
+                                      f'{signal.units}: it must be dimensionless')
 
     @property
     def framework(self) -> 'BondgraphFramework':

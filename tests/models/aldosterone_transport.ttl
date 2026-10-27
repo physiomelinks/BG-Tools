@@ -1,0 +1,118 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# Aldosterone: secreted at k (a + b f_Na q_ATII/q_ATII_0) through a first-order lag, a flow source whose value k is
+# modulated by FirstOrderLag(LinearMap(Product(PowerLaw(c_Na), PowerLaw(q_ATII)))), with plasma Na and Ang II from
+# outside the model; cleared. Its saturating scale 1 + alpha q/(q + q_h) multiplies the rate of an epithelial
+# saturating Na pump (bgf:modulates "kappa").
+
+:aldosterone_transport
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:chemical.ttl, tpl:signal.ttl ;
+    bgf:hasBondElement :Sf_aldo, :q_aldo, :Re_aldo, :Se_aldo, :q_Na_epi, :NKE, :q_Na_bl ;
+    bgf:hasSignalBlock :c_pl_Na, :ATII, :f_Na, :r_ATII, :drive, :affine, :lag, :aldo_scale ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5, :s6, :s7, :s8, :s9 .
+
+:Sf_aldo
+    a bgf:ChemicalFlow ;
+    bgf:hasSymbol "v_aldo_sec" ;
+    bgf:hasValue "2.5e-12 mol/s"^^cdt:ucum .
+
+:q_aldo
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "aldo" ;
+    bgf:hasValue "5e-9 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "2e8 mol-1"^^cdt:ucum ] .
+
+:Re_aldo
+    a bgf:ChemicalReactionNode ;
+    bgf:parameterValue [ bgf:varName "kappa" ; bgf:hasValue "2.5e-12 mol/s"^^cdt:ucum ] .
+
+:Se_aldo
+    a bgf:ChemicalPotential ;
+    bgf:hasSymbol "Se" ; bgf:hasSpecies "aldo_cleared" ;
+    bgf:hasValue "-80000 J/mol"^^cdt:ucum .
+
+:q_Na_epi
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "Na" ; bgf:hasLocation "epi" ;
+    bgf:hasValue "0.0015 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "100 mol-1"^^cdt:ucum ] .
+
+:NKE
+    a bgf:SaturatingChemicalReactionNode ;
+    bgf:parameterValue [ bgf:varName "kappa" ; bgf:hasSymbol "k_NKE" ; bgf:hasValue "1e-4 mol/s"^^cdt:ucum ] ,
+                       [ bgf:varName "sigma" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+
+:q_Na_bl
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "Na" ; bgf:hasLocation "bl" ;
+    bgf:hasValue "0.4 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "0.3 mol-1"^^cdt:ucum ] .
+
+:b1 bgf:hasSource :Sf_aldo ; bgf:hasTarget :q_aldo .
+:b2 bgf:hasSource :q_aldo ; bgf:hasTarget :Re_aldo .
+:b3 bgf:hasSource :Re_aldo ; bgf:hasTarget :Se_aldo .
+:b4 bgf:hasSource :q_Na_epi ; bgf:hasTarget :NKE .
+:b5 bgf:hasSource :NKE ; bgf:hasTarget :q_Na_bl .
+
+# Signals
+
+:c_pl_Na
+    a bgf:SignalInputPort ;
+    bgf:hasSymbol "c_pl_Na" ;
+    bgf:portType "plasma_Na_port" ;
+    bgf:hasValue "0.14 mol/L"^^cdt:ucum .
+
+:ATII
+    a bgf:SignalInputPort ;
+    bgf:hasSymbol "q_ATII" ;
+    bgf:portType "ATII_port" ;
+    bgf:hasValue "1.5e-11 mol"^^cdt:ucum .
+
+:f_Na
+    a bgf:PowerLaw ;
+    bgf:hasSymbol "f_Na" ;
+    bgf:parameterValue [ bgf:varName "u_ref" ; bgf:hasSymbol "c_Na_0" ; bgf:hasValue "0.14 mol/L"^^cdt:ucum ] ,
+                       [ bgf:varName "n" ; bgf:hasSymbol "n_Na" ; bgf:hasValue "-2 1"^^cdt:ucum ] .
+
+:r_ATII
+    a bgf:PowerLaw ;
+    bgf:hasSymbol "r_ATII" ;
+    bgf:parameterValue [ bgf:varName "u_ref" ; bgf:hasSymbol "q_ATII_0" ; bgf:hasValue "1.5e-11 mol"^^cdt:ucum ] ,
+                       [ bgf:varName "n" ; bgf:hasSymbol "n_ATII" ; bgf:hasValue "1 1"^^cdt:ucum ] .
+
+:drive
+    a bgf:Product ;
+    bgf:hasSymbol "aldo_drive" .
+
+:affine
+    a bgf:LinearMap ;
+    bgf:hasSymbol "aldo_target" ;
+    bgf:parameterValue [ bgf:varName "a" ; bgf:hasSymbol "a_aldo" ; bgf:hasValue "0.3 1"^^cdt:ucum ] ,
+                       [ bgf:varName "b" ; bgf:hasSymbol "b_aldo" ; bgf:hasValue "0.7 1"^^cdt:ucum ] .
+
+:lag
+    a bgf:FirstOrderLag ;
+    bgf:hasSymbol "aldo_secretion" ;
+    bgf:hasValue "1 1"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "tau" ; bgf:hasSymbol "tau_aldo" ; bgf:hasValue "3600 s"^^cdt:ucum ] .
+
+:aldo_scale
+    a bgf:SaturatingScale ;
+    bgf:hasSymbol "aldo_scale" ;
+    bgf:parameterValue [ bgf:varName "alpha" ; bgf:hasSymbol "alpha_aldo" ; bgf:hasValue "1 1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_half" ; bgf:hasSymbol "aldo_healthy" ; bgf:hasValue "5e-9 mol"^^cdt:ucum ] .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :c_pl_Na ; bgf:hasTarget :f_Na .
+:s2 a bgf:SignalBond ; bgf:hasSource :ATII ; bgf:hasTarget :r_ATII .
+:s3 a bgf:SignalBond ; bgf:hasSource :f_Na ; bgf:hasTarget :drive ; bgf:signalInput "u_1" .
+:s4 a bgf:SignalBond ; bgf:hasSource :r_ATII ; bgf:hasTarget :drive ; bgf:signalInput "u_2" .
+:s5 a bgf:SignalBond ; bgf:hasSource :drive ; bgf:hasTarget :affine .
+:s6 a bgf:SignalBond ; bgf:hasSource :affine ; bgf:hasTarget :lag .
+:s7 a bgf:SignalBond ; bgf:hasSource :lag ; bgf:hasTarget :Sf_aldo ; bgf:modulates "v" .
+:s8 a bgf:SignalBond ; bgf:hasSource :q_aldo ; bgf:hasTarget :aldo_scale .
+:s9 a bgf:SignalBond ; bgf:hasSource :aldo_scale ; bgf:hasTarget :NKE ; bgf:modulates "kappa" .

@@ -240,6 +240,12 @@ class CellMLModel:
 
         for element in model.elements:
             self.__add_element(element)
+        for block in model.signal_blocks:
+            for constant in block.domain.constants:
+                self.__add_fixed(constant)
+            for variable in block.variables.values():
+                if variable.units_known:
+                    self.__add_variable(variable, block)
         for junction in model.junctions:
             self.__add_junction_variables(junction)
         self.__output_variable_definitions()

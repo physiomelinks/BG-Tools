@@ -41,6 +41,7 @@ POTENTIAL_SOURCE   = BGF.PotentialSource.value
 QUANTITY_STORE     = BGF.QuantityStore.value
 REACTION           = BGF.Reaction.value
 RESISTANCE         = BGF.Resistance.value
+SIGNAL_BLOCK       = BGF.SignalBlock.value
 
 ONENODE_JUNCTION   = BGF.OneNode.value
 TRANSFORM_JUNCTION = BGF.TransformNode.value  # Can act as a transformer of gyrator
@@ -123,11 +124,16 @@ class Variable:
     def __init__(self, element: Labelled|ModelElement|None, name: str,
                         units: Literal|Units|None=None,
                         value: Literal|None=None,
-                        type: NamedNode|str|None=None):
+                        type: NamedNode|str|None=None,
+                        units_of: str|None=None, free: bool=False):
+        # A variable may have no units yet: those of another variable of its template (`units_of`), known once a
+        # model's signals are connected, or (`free`) those of its value or of the signal connected to it
         self.__element = element
         self.__name = clean_name(name)
         self.__symbol: str|None = None
         self.__type = type.value if isinstance(type, NamedNode) else type
+        self.__units_of = units_of
+        self.__free = free
         if isLiteral(units):
             self.__units = Units.from_ucum(units)   # pyright: ignore[reportArgumentType]
         else:
@@ -139,7 +145,8 @@ class Variable:
         else:
             self.__value = None
         if self.__units is None:
-            self.__report_issue(f'Variable {name} for {self.element_uri} has no Units specified')
+            if units_of is None and not free:
+                self.__report_issue(f'Variable {name} for {self.element_uri} has no Units specified')
             return
 
         if self.__value is not None:
@@ -181,6 +188,41 @@ class Variable:
     def units(self) -> Units:
         return self.__units         # type: ignore
 
+    @property
+    def units_known(self) -> bool:
+        return self.__units is not None
+
+    @property
+    def units_of(self) -> str|None:
+        return self.__units_of
+
+    @property
+    def free(self) -> bool:
+        return self.__free
+
+    def set_units(self, units: Units):
+    #=================================
+        self.__units = units
+
+    def clear_value(self):
+    #=====================
+        self.__value = None
+
+    def settle_value(self) -> str|None:
+    #==================================
+        # Once its units are known, a value given before them (or in other units) is expressed in them: a
+        # dimensionless number is taken as it is, compatible units are converted. Returns an issue, if any.
+        if self.__value is None or self.__units is None:
+            return None
+        value_units = self.__value.units
+        number = self.__value.value
+        if value_units is not None and value_units != self.__units and not value_units.is_dimensionless():
+            if not value_units.is_compatible_with(self.__units):
+                return f'Value of {self.__name} has units {value_units}, not compatible with {self.__units}'
+            number = value_units.convert(number, self.__units)
+        self.__value = Value(number, self.__units)
+        return None
+
     def copy(self, suffix: str|None=None, domain: 'Domain|None'=None) -> 'Variable':
     #===============================================================================
         if suffix is None:
@@ -196,7 +238,8 @@ class Variable:
                     name = suffix
                 else:
                     name = f'{self.__name}_{suffix}'
-        copy = Variable(self.__element, name, units=self.__units, type=self.__type)
+        copy = Variable(self.__element, name, units=self.__units, type=self.__type,
+                        units_of=self.__units_of, free=self.__free)
         copy.__value = self.__value.copy() if self.__value is not None else None
         return copy
 
@@ -207,6 +250,11 @@ class Variable:
     def set_value(self, value: Value):
     #=================================
         self.__value = value
+        if self.__units is None:
+            # a free variable takes its value's units; one with bgf:unitsOf settles its value once they are known
+            if self.__units_of is None and value.units is not None:
+                self.__units = value.units
+            return
         if self.__value.units is None:
             self.__value.set_units(self.__units)                        # type: ignore
         elif not self.__units.is_compatible_with(self.__value.units):   # type: ignore
@@ -297,6 +345,43 @@ class Domain(Labelled):
                                     DOMAIN_CONSTANTS.replace('%DOMAIN_URI%', self.uri.value))])
 
 #===============================================================================
+
+SIGNAL_DOMAIN_CONSTANTS = """
+    SELECT DISTINCT ?name ?value
+    WHERE {
+        <%DOMAIN_URI%>
+            a bgf:SignalDomain ;
+            bgf:hasConstant [
+                bgf:varName ?name ;
+                bgf:hasValue ?value
+            ] .
+    }"""
+
+class SignalDomain(Labelled):
+    # The domain of signal blocks: no power variables, only constants (e.g. RT)
+    def __init__(self, id: str, label: str|None):
+        super().__init__(id, label)
+        self.__constants: list[Variable] = []
+
+    @classmethod
+    def from_rdf_graph(cls, graph: RdfGraph, uri: NamedNode, label: Literal|None) -> Self:
+        self = cls(uri.value, literal_as_string(label))
+        self.__constants.extend([Variable(self, row['name'].value, value=row['value'])  # pyright: ignore[reportArgumentType]
+                                for row in graph.query(SIGNAL_DOMAIN_CONSTANTS.replace('%DOMAIN_URI%', self.uri.value))])
+        return self
+
+    def __eq__(self, other):
+        return self.uri.value == other.uri.value
+
+    @property
+    def constants(self):
+        return self.__constants
+
+    @property
+    def intrinsic_symbols(self) -> list[str]:
+        return []
+
+#===============================================================================
 #===============================================================================
 
 @dataclass
@@ -345,21 +430,41 @@ class PowerPort:
 #===============================================================================
 
 TEMPLATE_PARAMETERS = """
-    SELECT DISTINCT ?name ?units ?value
+    SELECT DISTINCT ?name ?units ?value ?unitsOf
     WHERE {
         <%TEMPLATE_URI%> bgf:hasParameter ?variable .
         ?variable bgf:varName ?name .
         OPTIONAL { ?variable bgf:hasUnits ?units }
         OPTIONAL { ?variable bgf:hasValue ?value }
+        OPTIONAL { ?variable bgf:unitsOf ?unitsOf }
     }"""
 
 TEMPLATE_VARIABLES = """
-    SELECT DISTINCT ?name ?units ?value
+    SELECT DISTINCT ?name ?units ?value ?unitsOf
     WHERE {
         <%TEMPLATE_URI%> bgf:hasVariable ?variable .
         ?variable bgf:varName ?name .
         OPTIONAL { ?variable bgf:hasUnits ?units }
         OPTIONAL { ?variable bgf:hasValue ?value }
+        OPTIONAL { ?variable bgf:unitsOf ?unitsOf }
+    }"""
+
+TEMPLATE_SIGNAL_INPUTS = """
+    SELECT DISTINCT ?name ?units ?unitsOf
+    WHERE {
+        <%TEMPLATE_URI%> bgf:hasSignalInput ?variable .
+        ?variable bgf:varName ?name .
+        OPTIONAL { ?variable bgf:hasUnits ?units }
+        OPTIONAL { ?variable bgf:unitsOf ?unitsOf }
+    } ORDER BY ?name"""
+
+TEMPLATE_SIGNAL_OUTPUT = """
+    SELECT DISTINCT ?name ?units ?unitsOf
+    WHERE {
+        <%TEMPLATE_URI%> bgf:hasSignalOutput ?variable .
+        ?variable bgf:varName ?name .
+        OPTIONAL { ?variable bgf:hasUnits ?units }
+        OPTIONAL { ?variable bgf:unitsOf ?unitsOf }
     }"""
 
 #===============================================================================
@@ -384,7 +489,7 @@ TEMPLATE_PORT_BONDS = """
 
 class ElementTemplate(Labelled):
     def __init__(self, id: str, element_class: NamedNode,
-                    label: str|None, domain: Domain, relation: str|Literal):
+                    label: str|None, domain: 'Domain|SignalDomain', relation: str|Literal):
         super().__init__(id, label)
         self.__element_class = element_class.value
         self.__domain = domain
@@ -409,13 +514,16 @@ class ElementTemplate(Labelled):
         self.__power_ports: dict[str, PowerPort] = {}
         self.__parameters: dict[str, Variable] = {}
         self.__variables: dict[str, Variable] = {}
+        self.__signal_inputs: dict[str, Variable] = {}
+        self.__signal_output: Variable|None = None
         self.__intrinsic_variable: Variable|None = None
 
     @classmethod
     def from_rdf_graph(cls, graph: RdfGraph, uri: NamedNode, element_class: NamedNode,
-                        label: Literal|None, domain: Domain, relation: Literal) -> Self:
+                        label: Literal|None, domain: 'Domain|SignalDomain', relation: Literal) -> Self:
         self = cls(uri.value, element_class, literal_as_string(label), domain, relation)
-        self.__add_ports(graph)
+        if self.__element_class != SIGNAL_BLOCK:
+            self.__add_ports(graph)
         self.__add_variables(graph)
         self.__check_names()
         return self
@@ -426,7 +534,20 @@ class ElementTemplate(Labelled):
 
     @property
     def domain(self) -> Domain:
-        return self.__domain
+        return self.__domain        # pyright: ignore[reportReturnType]
+
+    @property
+    def is_signal_block(self) -> bool:
+        return self.__element_class == SIGNAL_BLOCK
+
+    @property
+    def signal_inputs(self) -> dict[str, Variable]:
+        '''The template's signal inputs, in order of their names.'''
+        return self.__signal_inputs
+
+    @property
+    def signal_output(self) -> Variable|None:
+        return self.__signal_output
 
     @property
     def element_class(self) -> str:
@@ -480,13 +601,19 @@ class ElementTemplate(Labelled):
             var_name = row['name'].value             # pyright: ignore[reportOptionalMemberAccess]
             if var_name in self.__domain.intrinsic_symbols:
                 raise Issue(f'Cannot specify domain symbol {var_name} as a variable for {self.uri}')
-            self.__parameters[var_name] = Variable(self, row['name'].value, units=row.get('units'), value=row.get('value'))   # type: ignore
+            self.__parameters[var_name] = self.__template_variable(row)
         for row in graph.query(TEMPLATE_VARIABLES.replace('%TEMPLATE_URI%', self.uri.value, True)):
             # ?name ?units ?value
             var_name = row['name'].value             # pyright: ignore[reportOptionalMemberAccess]
             if var_name in self.__domain.intrinsic_symbols:
                 raise Issue(f'Cannot specify domain symbol {var_name} as a variable for {self.uri}')
-            self.__variables[var_name] = Variable(self, row['name'].value, units=row.get('units'), value=row.get('value'))   # type: ignore
+            self.__variables[var_name] = self.__template_variable(row)
+        for row in graph.query(TEMPLATE_SIGNAL_INPUTS.replace('%TEMPLATE_URI%', self.uri.value, True)):
+            # ?name ?units ?unitsOf
+            self.__signal_inputs[row['name'].value] = self.__template_variable(row)  # pyright: ignore[reportOptionalMemberAccess]
+        for row in graph.query(TEMPLATE_SIGNAL_OUTPUT.replace('%TEMPLATE_URI%', self.uri.value, True)):
+            # ?name ?units ?unitsOf
+            self.__signal_output = self.__template_variable(row)
         # A variable that is intrinsic to the element's class
         # Values of intrinsic variables are set by bgf:hasValue
         if self.__element_class == QUANTITY_STORE:
@@ -497,6 +624,12 @@ class ElementTemplate(Labelled):
             self.__intrinsic_variable = self.__domain.potential.copy()
         elif self.__element_class == FLOW_SOURCE:
             self.__intrinsic_variable = self.__domain.flow.copy()
+
+    def __template_variable(self, row) -> Variable:
+    #===============================================
+        units_of = row['unitsOf'].value if row.get('unitsOf') is not None else None
+        return Variable(self, row['name'].value, units=row.get('units'), value=row.get('value'),
+                        units_of=units_of, free=(row.get('units') is None and units_of is None))
 
     def __check_names(self):
     #=======================
@@ -513,6 +646,10 @@ class ElementTemplate(Labelled):
         eqn_names = self.__relation.variables if self.__relation is not None else []
         if len(names) > len(eqn_names):
             raise Issue(f"{self.uri} has variables that are not in it's constitutive relation")
+        for name in self.__signal_inputs.keys():
+            add_name(name)
+        if self.__signal_output is not None:
+            add_name(self.__signal_output.name)
         for port in self.__power_ports.values():
             if port.flow is not None:
                 add_name(port.flow.name, False)

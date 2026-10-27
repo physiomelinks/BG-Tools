@@ -101,6 +101,21 @@ class Units:
     #=========================================
         return self.__units.is_compatible_with(other.__units)
 
+    def is_dimensionless(self) -> bool:
+    #==================================
+        return bool(self.__units.dimensionless)
+
+    def convert(self, value: float, other: 'Units') -> float:
+    #=========================================================
+        return float(pint.Quantity(value, self.__units).to(other.__units).magnitude)
+
+    def same_scale(self, other: 'Units') -> bool:
+    #=============================================
+        # equal, or compatible with a factor of 1 (kPa and J/L)
+        if self == other:
+            return True
+        return self.is_compatible_with(other) and abs(self.convert(1.0, other) - 1.0) < 1e-12
+
 #===============================================================================
 
 class Value:

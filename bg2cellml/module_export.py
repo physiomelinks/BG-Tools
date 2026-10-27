@@ -28,12 +28,24 @@ in the formats of libcuflynx's ``schemas/module_config.schema.json`` (PhLynx's k
     <type>_<subtype>_modules.cellml         the bond graph's equations in one component, component_type
     <type>_<subtype>_units.cellml           the units they use
     <type>_<subtype>_modules_config.json    one entry: module_type, module_subtype, component_file,
-                                            component_type, ports, variables_and_units, default_parameterisation
-    parameterisations/<name>/<name>_parameters.csv
-                                            variable_name,units,value,data_reference: every value
+                                            component_type, licence, creator, required_citations, ports,
+                                            variables_and_units, default_parameterisation
+    <type>_<subtype>_references.bib         the required citations' entries (by default a placeholder citing
+                                            libcuflynx)
+    <type>_<subtype>_tests.yaml             the version's record (reviewed: false)
+    <type>_<subtype>_verification_config.json
+                                            a short run of the version's states, for the library's tests
+    parameterisations/<name>/<name>_parameters.json
+                                            every value, libcuflynx's nested JSON (schema_version 1; units,
+                                            data_reference and sourced "no")
 
 Every variable is public. A value of the bond graph (a parameter, a potential source's potential) becomes
 a parameter of the module; a state ``X`` starts from a parameter ``X_init``.
+
+A signal input port block (bgf:SignalInputPort) is an entrance port of its port type (bgf:portType, by default
+``<name>_port``) with one variable, the block's output, a boundary condition whose value is a parameter; a signal
+output port block (bgf:SignalOutputPort) is an exit port (multi_port, as a signal may go to several modules) with
+its output, a variable.
 
 A chemostat (a potential source with a species) is the module's link to its surroundings, and a bond graph
 may have several copies of one, one beside each reaction using it. Each species and location's copies get
@@ -45,7 +57,6 @@ flow is the flow into it). The module connected to such a port gives the potenti
 
 #===============================================================================
 
-import csv
 import json
 from pathlib import Path
 import re
@@ -79,7 +90,29 @@ SOURCES = """
         OPTIONAL { ?uri bgf:hasLocation ?location }
     }"""
 
+# The model's signal port blocks, with their port types
+SIGNAL_PORTS = """
+    SELECT DISTINCT ?uri ?type ?portType
+    WHERE {
+        <%MODEL%> bgf:hasSignalBlock ?uri .
+        ?uri a ?type .
+        FILTER (?type IN (bgf:SignalInputPort, bgf:SignalOutputPort))
+        OPTIONAL { ?uri bgf:portType ?portType }
+    }"""
+
 NAME_PATTERN = re.compile(r'[^A-Za-z0-9_]')
+
+# Cited when no citation is given: libcuflynx and the module library (circulatory-autogen-modules' entry)
+DEFAULT_CITATION = 'argus2026circulatory'
+DEFAULT_BIB = '''@misc{argus2026circulatory,
+  author = {Argus, Finbar and Maso Talou, Gonzalo D. and others},
+  title = {circulatory\\_autogen (libcuflynx)},
+  howpublished = {GitHub},
+  url = {https://github.com/physiomelinks/circulatory_autogen},
+  year = {2026},
+  note = {Placeholder software citation for circulatory_autogen (libcuflynx) and this module library, until a release or paper is cited; year = the version cited}
+}
+'''
 
 #===============================================================================
 
@@ -178,13 +211,40 @@ def chemostat_domains(model) -> dict[tuple[str, str], str]:
 
 #===============================================================================
 
+def signal_ports(model) -> list[tuple[str, str, str]]:
+    """``[(direction, CellML variable, port type), ...]`` of the model's signal port blocks: direction
+    ``entrance`` (a bgf:SignalInputPort) or ``exit`` (a bgf:SignalOutputPort)."""
+    names = variable_names(model)
+    blocks = {block.uri.value: block for block in model.signal_blocks}
+    ports = []
+    for row in model.rdf_graph.query(SIGNAL_PORTS.replace('%MODEL%', model.uri.value)):
+        if (block := blocks.get(row['uri'].value)) is None:
+            continue
+        name = names.get(block.output.symbol, block.output.symbol)
+        port_type = row['portType'].value if row.get('portType') is not None else f'{name}_port'
+        direction = 'entrance' if row['type'].value == f'{BGF}SignalInputPort' else 'exit'
+        ports.append((direction, name, port_type))
+    return sorted(ports)
+
+def _number(value: str) -> float|int:
+    number = float(value)
+    return int(number) if number.is_integer() and abs(number) < 1e15 else number
+
+def _bib_keys(bib: str) -> list[str]:
+    return re.findall(r'@\w+\s*\{\s*([^,\s]+)\s*,', bib)
+
 def export_module(model, cellml: str, out_dir: str|Path, module_type: str, module_subtype: str,
                   component_type: str|None=None, parameterisation: str='default',
-                  source: str='bond graph') -> list[Path]:
+                  source: str='bond graph', citations: list[str]|None=None, bib: str|None=None,
+                  licence: str='CC0-1.0', creator: list[str]|None=None,
+                  variable_mapping_file: bool=False) -> list[Path]:
     """
     Write the module version of ``model`` (a BondgraphModel) and its CellML (from ``make_cellml_model()``)
     into ``out_dir``; returns the files written. ``source`` names the bond graph in each parameter's
-    data_reference.
+    data_reference. ``bib`` is the text of the version's references.bib and ``citations`` the keys of it the
+    module requires (all its keys when not given); without them it cites libcuflynx's placeholder entry.
+    ``variable_mapping_file`` also writes ``<type>_<subtype>_variable_mapping.csv`` (a module library such as
+    circulatory-autogen-modules keeps no such file in a version).
     """
     for name, what in ((module_type, 'module_type'), (module_subtype, 'module_subtype')):
         if not name or NAME_PATTERN.search(name):
@@ -210,6 +270,7 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
     rows: list[list[str]] = []
     variables_and_units: list[list[str]] = []
     ports = []
+    interfaces: dict[str, str] = {}         # each port variable's public interface
 
     def parameter(name: str, units: str, value: str, reference: str):
         rows.append([name, units, value, reference])
@@ -255,9 +316,30 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         variables_and_units.append([u_port, u_units, 'access', 'boundary_condition'])
         variables_and_units.append([v_port, v_units, 'access', 'variable'])
         ports.append({'port_type': f'chemostat_{place}', 'variables': [u_port, v_port]})
+        interfaces[u_port] = 'in'
+        interfaces[v_port] = 'out'
+
+    # Signal ports: an entrance port's variable is a boundary condition (its value a parameter), an exit port's
+    # a variable the module computes
+    entrance_ports = []
+    exit_ports = []
+    for direction, name, port_type in signal_ports(model):
+        if name not in variables:
+            raise ModuleExportError(f'signal port variable {name} is not in the CellML')
+        units = variables[name].get('units')
+        if direction == 'entrance':
+            if (value := variables[name].attrib.pop('initial_value', None)) is not None:
+                parameter(name, units, value, f'{source}: {name}, until the {port_type} entrance port sets it')
+            variables_and_units.append([name, units, 'access', 'boundary_condition'])
+            entrance_ports.append({'port_type': port_type, 'variables': [name]})
+            interfaces[name] = 'in'
+        else:
+            variables_and_units.append([name, units, 'access', 'variable'])
+            exit_ports.append({'port_type': port_type, 'variables': [name], 'multi_port': 'True'})
+            interfaces[name] = 'out'
 
     # Every other value becomes a parameter, a state's initial value a parameter <state>_init
-    port_variables = {name for port in ports for name in port['variables']}
+    port_variables = set(interfaces)
     ordered: list[etree._Element] = []
     for name, variable in list(variables.items()):
         ordered.append(variable)
@@ -289,8 +371,8 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         else:
             variable.set('public_interface', 'out')
             variables_and_units.append([name, units, 'access', 'variable'])
-    for name in port_variables:
-        variables[name].set('public_interface', 'in' if name.startswith('u_') else 'out')
+    for name, interface in interfaces.items():
+        variables[name].set('public_interface', interface)
     # the variables come first in a component
     for variable in component.findall(C('variable')):
         component.remove(variable)
@@ -320,10 +402,18 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         files.append(path)
 
     write_xml(out / f'{prefix}_modules.cellml', document)
-    files.append(write_variable_mapping(variable_mapping(model, etree.tostring(document).decode(),
-                                                         parameters={row[0] for row in rows} - port_variables),
-                                        out / f'{prefix}_variable_mapping.csv'))
+    if variable_mapping_file:
+        files.append(write_variable_mapping(variable_mapping(model, etree.tostring(document).decode(),
+                                                             parameters={row[0] for row in rows} - port_variables),
+                                            out / f'{prefix}_variable_mapping.csv'))
     write_xml(out / f'{prefix}_units.cellml', units_model)
+
+    if bib is None:
+        bib = DEFAULT_BIB
+    keys = _bib_keys(bib)
+    citations = list(citations) if citations else keys
+    if not citations or any(key not in keys for key in citations):
+        raise ModuleExportError(f'required citations {citations} must be keys of the references ({keys})')
 
     config = [{
         'module_type': module_type,
@@ -332,8 +422,11 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         'component_file': f'{prefix}_modules.cellml',
         'component_type': component_type,
         'default_parameterisation': parameterisation,
-        'entrance_ports': [],
-        'exit_ports': [],
+        'licence': licence,
+        'creator': list(creator or []),
+        'required_citations': citations,
+        'entrance_ports': entrance_ports,
+        'exit_ports': exit_ports,
         'general_ports': ports,
         'variables_and_units': variables_and_units,
         'notes': f'Exported by bg2cellml from {source}.'
@@ -342,13 +435,39 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     files.append(config_path)
 
+    bib_path = out / f'{prefix}_references.bib'
+    bib_path.write_text(bib if bib.endswith('\n') else bib + '\n')
+    files.append(bib_path)
+
+    tests_path = out / f'{prefix}_tests.yaml'
+    notes = f'Exported by bg2cellml from {source}; parameter values unreviewed.'.replace("'", "''")
+    tests_path.write_text(f"module_type: {module_type}\nversion: {module_subtype}\nreviewed: false\n"
+                          f"notes: '{notes}'\n")
+    files.append(tests_path)
+
+    verification = {
+        'module_type': module_type,
+        'version': module_subtype,
+        'sim_time': 10.0,
+        'pre_time': 0.0,
+        'dt': 0.01,
+        'solver': 'CVODE_myokit',
+        'solver_info': {'rtol': 1e-08, 'atol': 1e-10},
+        'outputs': sorted(states)[:10] or [name for name, *_ in variables_and_units if name not in port_variables][:1],
+        'validation': {parameterisation: {'baseline': {
+            'status': 'pending', 'reason': f'exported by bg2cellml from {source}; no module-level data recorded'}}}
+    }
+    verification_path = out / f'{prefix}_verification_config.json'
+    verification_path.write_text(json.dumps(verification, indent=2) + '\n')
+    files.append(verification_path)
+
     parameters_dir = out / 'parameterisations' / parameterisation
     parameters_dir.mkdir(parents=True, exist_ok=True)
-    parameters_path = parameters_dir / f'{parameterisation}_parameters.csv'
-    with open(parameters_path, 'w', newline='') as fp:
-        writer = csv.writer(fp)
-        writer.writerow(['variable_name', 'units', 'value', 'data_reference'])
-        writer.writerows(rows)
+    parameters_path = parameters_dir / f'{parameterisation}_parameters.json'
+    parameters: dict = {'schema_version': 1}
+    for name, units, value, reference in rows:
+        parameters[name] = {'value': _number(value), 'units': units, 'data_reference': reference, 'sourced': 'no'}
+    parameters_path.write_text(json.dumps(parameters, indent=1) + '\n')
     files.append(parameters_path)
     return files
 
