@@ -83,6 +83,7 @@ import re
 
 import lxml.etree as etree
 
+from bg2cellml.cellml import CELLML_UNITS
 from bg2cellml.bondgraph.framework_support import FLOW_SOURCE, POTENTIAL_SOURCE, QUANTITY_STORE
 from bg2cellml.variable_mapping import variable_mapping, write_variable_mapping
 from bg2cellml.variable_names import naming_rules, rename_cellml, render, rule_for, variable_names
@@ -758,16 +759,17 @@ class ReferenceVersion:
                     self.__units.setdefault(units.get('name'), units)
 
     def rename_units(self, component: etree._Element, variables_and_units: list, rows: list):
-        """Name each variable's units as the reference does (its own name for the variable, else the one
-        reference units of the same definition), where the definitions agree."""
+        """Name each variable's units as the reference does: the reference's own name for the variable (where the reference defines it), else, for
+        units that are not built in (such as dimensionless), the first reference or library units of the same
+        definition; in both cases only where the definitions agree."""
         definitions = {units.get('name'): units for units in component.getparent().iter(C('units'))}
         renamed: dict[str, str] = {}
         for variable in component.findall(C('variable')):
             name, units = variable.get('name'), variable.get('units')
             wanted = self.units_of.get(name)
-            if wanted is None or wanted == units:
+            if (wanted is None or wanted == units) and units not in CELLML_UNITS and units not in self.__units:
                 matches = [n for n in self.__units if _same_units(self, n, definitions, units)]
-                wanted = matches[0] if matches and units not in self.__units else None
+                wanted = matches[0] if matches else None
             if wanted is not None and wanted != units and _same_units(self, wanted, definitions, units):
                 variable.set('units', wanted)
                 renamed[name] = wanted

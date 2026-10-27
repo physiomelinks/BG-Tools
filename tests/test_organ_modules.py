@@ -99,6 +99,36 @@ def test_a_reference_version_keeps_its_units_names_and_parameter_metadata(tmp_pa
     assert k_f['data_reference'] == 'Thomas 2019' and k_f['sourced'] == 'yes' and k_f['value'] == 0.000254357
     assert any(w.startswith('K_f:') for w in warnings)
 
+def test_dimensionless_units_keep_the_built_in_name(tmp_path):
+    '''A library's alias of dimensionless does not rename the built-in units: without a reference, and over a
+    reference version that names them dimensionless, as libcuflynx's parameter files do.'''
+    units = tmp_path / 'library_units.cellml'
+    units.write_text(f'<model xmlns="{CELLML[1:-1]}" name="Units">'
+                     '<units name="dim"><unit units="dimensionless"/></units></model>')
+    reference = tmp_path / 'reference'
+    export(MODELS / 'kidney_organ.ttl', reference, 'kidney')
+    (entry,) = json.loads((reference / 'kidney_bondgraph_v01_modules_config.json').read_text())
+    built_in = {name for name, u, _, _ in entry['variables_and_units'] if u == 'dimensionless'}
+    assert {'sigma_pt', 'FF'} <= built_in
+    import asyncio
+    from bg2cellml.bondgraph.framework import get_framework
+    from bg2cellml.module_export import export_module
+    async def convert(out, reference):
+        framework = await get_framework()
+        source = MODELS / 'kidney_organ.ttl'
+        model = framework.make_bondgraph_model(source.resolve().as_uri(), source.read_text())
+        cellml = model.make_cellml_model().to_xml()
+        export_module(model, cellml, out, 'kidney', 'bondgraph_v01', reference=reference, units_files=[units])
+    for out, ref in ((tmp_path / 'library', None), (tmp_path / 'over_reference', reference)):
+        asyncio.run(convert(out, ref))
+        (entry,) = json.loads((out / 'kidney_bondgraph_v01_modules_config.json').read_text())
+        names = {name: u for name, u, _, _ in entry['variables_and_units']}
+        assert {name for name in built_in if names[name] != 'dimensionless'} == set(), out.name
+        cellml = (out / 'kidney_bondgraph_v01_modules.cellml').read_text()
+        assert '"dim"' not in cellml and '"dim"' not in (out / 'kidney_bondgraph_v01_units.cellml').read_text()
+        data = json.loads((out / 'parameterisations' / 'default' / 'default_parameters.json').read_text())
+        assert data['sigma_pt']['units'] == 'dimensionless'
+
 #===============================================================================
 # A vessel in SI units, whose wall resistance gives the pressure of the node a flow feeds
 

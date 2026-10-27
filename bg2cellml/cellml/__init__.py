@@ -126,14 +126,8 @@ CELLML_UNITS = [
 
 #===============================================================================
 
-DIMENSIONLESS_UNITS_NAME = 'dim'
+DIMENSIONLESS_UNITS_NAME = 'dimensionless'        # built in, so numbers need no units definition
 CELLML_UNITS_ATTRIB = CELLML_NS('units')
-
-DIMENSIONLESS_UNIT_DEFINITION = [
-    f'<units name="{DIMENSIONLESS_UNITS_NAME}">',
-    '<unit units="dimensionless"/>',
-    '</units>'
-]
 
 #===============================================================================
 
@@ -240,7 +234,6 @@ class CellMLModel:
         self.__metadata = RdfGraph()
         self.__metadata.add(Triple(namedNode(CELLML_MODEL_URI), BQMODEL.isDescribedBy, model.uri))
 
-        self.__add_unit_xml(DIMENSIONLESS_UNIT_DEFINITION)  ## Only if <cn> in MathML??
         self.__add_fixed(VOI_VARIABLE)       # only if VOI in some element's CR??
 
         for element in model.elements:
