@@ -226,8 +226,9 @@ def main():
     parser.add_argument('--module', metavar='TYPE[/SUBTYPE]', help='Write a module version for libcuflynx and PhLynx into OUTPUT_DIR: its CellML, units, modules_config.json and default parameterisation (SUBTYPE defaults to bondgraph)')
     parser.add_argument('--bib', metavar='BIB_FILE', help="With --module: the version's references (default: a placeholder citing libcuflynx)")
     parser.add_argument('--citation', metavar='KEY', action='append', help="With --module: a required citation, a key of --bib's (repeat for more; default: all its keys)")
-    parser.add_argument('--licence', default='CC0-1.0', help="With --module: the version's licence (an SPDX id, default CC0-1.0)")
+    parser.add_argument('--licence', help="With --module: the version's licence (an SPDX id; default the --reference's, else CC0-1.0)")
     parser.add_argument('--creator', metavar='NAME', action='append', help="With --module: a creator's name (repeat for more)")
+    parser.add_argument('--reference', metavar='VERSION_DIR', help="With --module: an existing version of the module (often OUTPUT_DIR itself) whose names of units, parameter metadata (data_reference, sourced), other config keys, licence, creators, citations, references, tests.yaml, verification_config.json and order the export keeps")
     parser.add_argument('source', metavar='CELLDL', help='Input file')
 
     args = parser.parse_args()
@@ -239,7 +240,8 @@ def main():
     if args.debug:
         print(f'bg2cellml version {__version__}')
     module_options = {'citations': args.citation, 'licence': args.licence, 'creator': args.creator,
-                      'bib': Path(args.bib).read_text() if args.bib else None}
+                      'bib': Path(args.bib).read_text() if args.bib else None,
+                      'reference': args.reference, 'warn': log.warning}
     asyncio.run(bg2cellml(args.source, args.output, omex=args.omex, bgrdf=args.bgrdf,
         annotate=args.annotate, save_if_errors=args.save_errors, debug=args.debug, module=args.module,
         list_variables=args.list_variables, variable_mapping_file=args.variable_mapping,

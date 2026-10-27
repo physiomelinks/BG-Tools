@@ -22,6 +22,8 @@ from typing import Self
 
 #===============================================================================
 
+import re
+
 import pint
 from pint import Quantity
 from ucumvert import PintUcumRegistry
@@ -73,7 +75,10 @@ class Units:
         name = (name.replace(' * ', '_')
                     .replace(' / ', '_per_')
                     .replace(' ** 2', '_squared')
+                    .replace(' ** 3', '_cubed')
                     .replace('1_per_', 'per_'))
+        # any other power, e.g. second ** -1.5 -> second_pow_m1_5
+        name = re.sub(r' \*\* (-?)([0-9.]+)', lambda m: f'_pow_{"m" if m[1] else ""}{m[2].replace(".", "_")}', name)
         for fullname, replacement in SUBSTITUTIONS.items():
             name = name.replace(fullname, replacement)
         return name
@@ -96,6 +101,14 @@ class Units:
         ## if not PREFERRED_BASE_ITEMS start by going through
         ## self.__pint_units.unit_items() and only go to_base_units() if not a known
         ## CELLML_UNIT...
+
+    def times(self, other: 'Units') -> 'Units':
+    #==========================================
+        return Units(self.__units * other.__units)
+
+    def over(self, other: 'Units') -> 'Units':
+    #=========================================
+        return Units(self.__units / other.__units)
 
     def is_compatible_with(self, other: Self):
     #=========================================

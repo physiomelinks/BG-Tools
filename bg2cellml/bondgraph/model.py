@@ -29,7 +29,8 @@ import networkx as nx
 from ..cellml import CellMLModel
 from ..mathml import Equation
 from ..rdf import ResultRow, RdfGraph, Triple
-from ..rdf import isBlankNode, isNamedNode, literal_as_string, NamedNode
+from ..rdf import isBlankNode, isLiteral, isNamedNode, literal_as_string, NamedNode
+from ..units import Units, Value
 from ..utils import Issue
 
 from .framework_support import BondgraphElementTemplate, Variable
@@ -105,6 +106,20 @@ SIGNAL_BONDS = """
 #===============================================================================
 #===============================================================================
 
+# Values elements and blocks give parameters, for the domain constants (RT, F) among them
+MODEL_PARAMETER_VALUES = """
+    SELECT DISTINCT ?element ?name ?value
+    WHERE {
+        { <%MODEL%> bgf:hasBondElement ?element } UNION { <%MODEL%> bgf:hasSignalBlock ?element }
+        ?element bgf:parameterValue ?variable .
+        ?variable bgf:varName ?name ;
+                  bgf:hasValue ?value .
+    }"""
+
+MODEL_UNIT_SYSTEM = """
+    SELECT DISTINCT ?system
+    WHERE { <%MODEL%> bgf:unitSystem ?system }"""
+
 BONDGRAPH_MODEL = """
     SELECT DISTINCT ?uri ?label
     WHERE {
@@ -136,11 +151,18 @@ class BondgraphModel(Labelled):   ## Component ??
         self.__junctions: dict[str, BondgraphJunction] = {}
         self.__blocks: dict[str, SignalBlock] = {}
         self.__symbolic_names: set[str] = set()
+        self.__constant_values: dict[str, Variable] = {}
         self.__bonds: list[BondgraphBond] = []
         self.__graph = nx.DiGraph()
         (model_id, label) = self.__load_rdf(base_iri, rdf_source)
         if model_id is not None:
             super().__init__(model_id, label)   # pyright: ignore[reportArgumentType]
+            # the model's unit system, if it has one (bgf:unitSystem)
+            for row in self.__rdf_graph.query(MODEL_UNIT_SYSTEM.replace('%MODEL%', model_id)):
+                try:
+                    self.__framework = framework.in_unit_system(row['system'].value)   # pyright: ignore[reportOptionalMemberAccess]
+                except ValueError as error:
+                    self.report_issue(str(error))
             self.__initialise()
 
     def report_issue(self, reason: str):
@@ -220,6 +242,7 @@ class BondgraphModel(Labelled):   ## Component ??
         if len(self.__elements) == 0 and len(self.__blocks) == 0:
             self.report_issue(f'Model {(pretty_uri(self.uri))} has no valid elements')
             return
+        self.__set_constant_values()
 
         for row in self.__rdf_graph.query(MODEL_JUNCTIONS.replace('%MODEL%', self.uri.value)):
             # ?uri ?type ?value ?symbol ?species ?location ?label
@@ -339,6 +362,37 @@ class BondgraphModel(Labelled):   ## Component ??
         self.__symbolic_names.add(name)
         return name
 
+    def __set_constant_values(self):
+    #===============================
+        # An element or block may give a domain constant (e.g. RT) its value in this model, by a bgf:parameterValue
+        # of that name; every value given must agree
+        constants: dict[str, Variable] = {}
+        for item in [*self.__elements.values(), *self.__blocks.values()]:
+            if item.domain is not None:
+                for constant in item.domain.constants:
+                    constants.setdefault(constant.name, constant)
+        for row in self.__rdf_graph.query(MODEL_PARAMETER_VALUES.replace('%MODEL%', self.uri.value)):
+            # ?element ?name ?value
+            name = row['name'].value                                # pyright: ignore[reportOptionalMemberAccess]
+            if name not in constants or not isLiteral(row['value']):
+                continue
+            value = Value.from_literal(row['value'])                # pyright: ignore[reportArgumentType]
+            constant = constants[name].copy()
+            constant.set_value(value)
+            if (issue := constant.settle_value()) is not None:
+                self.report_issue(f'Constant {name}: {issue}')
+                continue
+            if name in self.__constant_values and self.__constant_values[name].value.value != constant.value.value:
+                self.report_issue(f'Constant {name} is given different values: '
+                                  f'{self.__constant_values[name].value} and {constant.value}')
+                continue
+            self.__constant_values[name] = constant
+
+    @property
+    def constant_values(self) -> dict[str, Variable]:
+        '''The domain constants the model gives its own values, by name.'''
+        return self.__constant_values
+
     def __generate_bonds(self):
     #==========================
         for row in self.__rdf_graph.query(BONDGRAPH_BONDS):
@@ -424,6 +478,22 @@ class BondgraphModel(Labelled):   ## Component ??
         # Units: a block's variables may have its signals' units
         while any([block.resolve_units() for block in self.__blocks.values()]):
             pass
+        # a value from outside (a signal input port's, a constant's) given in other units of the same kind takes the
+        # units of what it sets, and is converted to them
+        def adopt(source: Variable, units: Units|None):
+            if (units is not None and source.free and source.value is not None and source.units_known
+            and not source.units.same_scale(units) and source.units.is_compatible_with(units)):
+                source.set_units(units)
+        for element in self.__elements.values():
+            for name, source in element.set_by_signal.items():
+                adopt(source, element.settable_units(name))
+            for name, source in element.connected_inputs.items():
+                declared = element.signal_inputs[name]
+                adopt(source, declared.units if declared.units_known else None)
+        for block in self.__blocks.values():
+            for name, declared in block.inputs.items():
+                if (source := block.connected_inputs.get(name)) is not None and declared.units_known:
+                    adopt(source, declared.units)
         for element in self.__elements.values():
             for name, source in element.set_by_signal.items():
                 units = element.settable_units(name)

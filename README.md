@@ -44,7 +44,20 @@ Ports: each chemostat species and compartment (all its copies) is a general port
 `chemostat_<species>_<location>`, of its potential (a boundary condition) and the module's uptake of the species. A
 signal input port block (`bgf:SignalInputPort`) is an entrance port of its `bgf:portType` (by default
 `<name>_port`) whose variable, the block's output, is a boundary condition; a signal output port block
-(`bgf:SignalOutputPort`) an exit port (`multi_port`). See `bg2cellml/module_export.py`.
+(`bgf:SignalOutputPort`) an exit port (`multi_port`). A flow or potential source with a `bgf:portType` is a port of
+its flow and potential, the flow into the module at an entrance and the pressure that of the node the source feeds.
+Any other element or block with a `bgf:portType` is a port too: `bgf:portVariables` names the variables it gives
+(`"q"` a store's amount, `"v"`, `"u"`, a parameter; by default a store's amount, a block's output, an element's flow),
+`bgf:portDirection` makes it an `entrance`, `exit` or `general` port, `bgf:multiPort` sets `multi_port` (`True`,
+`sum`), and the elements of one port type and direction with a `bgf:portOrder` make one port of several variables in
+that order. A port variable with a value is a boundary condition, a state stays a state. Domain constants no equation
+uses (RT in a hydraulic model) are left out. See `bg2cellml/module_export.py`.
+
+`--reference VERSION_DIR` (often `OUTPUT_DIR` itself) regenerates an existing version keeping its form: each
+variable's units named as there (where the definitions agree), its parameters' `data_reference`, `sourced` and other
+keys (with the bond graph's values; a different value is reported), its config's other keys (e.g.
+`required_citations_uncertain`), licence, creators, citations and references, its `tests.yaml` and
+`verification_config.json`, and its order of variables, parameters and ports.
 `tests/test_module_export.py` builds each example module with libcuflynx and runs it against bg2cellml's own
 CellML when `LIBCUFLYNX_SRC` (circulatory_autogen's `src/`) and `LIBCUFLYNX_PYTHON` (a Python with its
 dependencies) are set.
@@ -62,9 +75,18 @@ parameter. Signal blocks (BG-RDF's `templates/signal.ttl`) each give one variabl
 variables' units may be their signals' (`bgf:unitsOf`, or none for an input or for a parameter, which then takes its
 value's), found once the signals are connected; a value in other compatible units is converted. A signal of the
 wrong units into a fixed-unit input, a modulation by a signal with units, and an input with no signal bond are
-issues. `tests/models/` has an example of each element: `vessel_inertance.ttl`, `angII_vessel.ttl`,
+issues. A signal input port's or a constant's value in other units of the same kind takes the units of the input or
+parameter it sets. An element or block may give a domain constant the model's value (`bgf:parameterValue [
+bgf:varName "RT" ; ... ]`). A model with `bgf:unitSystem "SI"` has cubic metres for the templates' litres and Pa for
+kPa; values in other units of the same kind are converted to their variables'.
+
+Where a bond graph's causality differs from how its equations are written (a resistance between a node a flow source
+feeds and a compliance gives the node's pressure), the equations are solved for the variables they must give
+(`bg2cellml/causality.py`). Names are written as they are (`alpha`, not a Greek letter). `tests/models/` has an
+example of each element: `vessel_inertance.ttl`, `angII_vessel.ttl`,
 `baroreceptor.ttl`, `renin_secretion.ttl`, `aldosterone_transport.ttl`, `kedem_katchalsky.ttl`
-(`tests/test_signals.py`).
+(`tests/test_signals.py`), `kidney_organ.ttl` (the Na/K-ATPase, arithmetic blocks, ports of several variables) and
+`flow_fed_node.ttl` (causality, SI units) (`tests/test_organ_modules.py`).
 
 ### A variable mapping for libcuflynx's methods LaTeX
 

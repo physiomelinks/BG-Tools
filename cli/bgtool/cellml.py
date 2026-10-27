@@ -29,7 +29,7 @@ from bgtool.utils import log
 
 def string_to_list(string: str) -> list[int]:
 #============================================
-    return [ord(x) for x in string]
+    return list(string.encode('utf-8'))
 
 #===============================================================================
 

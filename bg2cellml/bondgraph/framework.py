@@ -19,17 +19,18 @@
 #===============================================================================
 
 from pathlib import Path
+import re
 from typing import cast
 
 #===============================================================================
 
-from ..rdf import NamedNode, RdfGraph
+from ..rdf import isLiteral, literal, NamedNode, RdfGraph
 from ..rdf.types import Triple
 
 from ..utils import Issue
 
 from .model import BondgraphModel
-from .namespaces import BGF, NAMESPACES
+from .namespaces import BGF, CDT, NAMESPACES
 
 from .framework_support import BondgraphElementTemplate, CompositeTemplate, ElementTemplate
 from .framework_support import Domain, JunctionStructure, SignalDomain
@@ -39,6 +40,16 @@ from .framework_support import Domain, JunctionStructure, SignalDomain
 BGF_ONTOLOGY_URI = 'https://bg-rdf.org/ontologies/bondgraph-framework'
 BGF_SIGNAL_BLOCK = BGF.SignalBlock
 BGF_TEMPLATE_URI_PREFIX = 'https://bg-rdf.org/templates/'
+
+# A model's unit system (bgf:unitSystem): "SI" has the templates' litres in cubic metres and kPa in Pa
+UNIT_SYSTEMS = ('SI',)
+
+def si_ucum_units(units: str) -> str:
+    """UCUM units with litres as cubic metres and kPa as Pa: "J/L" -> "J/m3", "L2.s-1.J-1" -> "m6.s-1.J-1"."""
+    def si(match: re.Match) -> str:
+        power = int(match[2]) if match[2] else 1
+        return f'm{3*power}' if match[1] == 'L' else f'Pa{match[2]}'
+    return re.sub(r'(?<![A-Za-z])(L|kPa)(-?\d*)(?![A-Za-z])', si, units)
 
 _BGF_TEMPLATE_NAMES = [
     'chemical.ttl',
@@ -261,6 +272,28 @@ class BondgraphFramework:
                 self.report_issue(f"Unknown BondElement {row['template']} for composite {row['uri']}")
                 continue
             self.__composite_elements[row['uri'].value] = CompositeTemplate(row['uri'].value, element, row.get('label')) # pyright: ignore[reportArgumentType]
+
+    def in_unit_system(self, system: str|None) -> 'BondgraphFramework':
+    #=================================================================
+        """The framework with its templates' units in a unit system (UNIT_SYSTEMS); itself for None."""
+        if not system:
+            return self
+        if system not in UNIT_SYSTEMS:
+            raise ValueError(f'Unknown unit system {system!r} (known: {", ".join(UNIT_SYSTEMS)})')
+        variants = self.__dict__.setdefault('_unit_system_variants', {})
+        if system not in variants:
+            variant = object.__new__(BondgraphFramework)
+            BondgraphFramework.__init__(variant)
+            statements = []
+            for statement in self.__graph.statements():
+                term = statement.object
+                if (isLiteral(term) and term.datatype is not None                       # pyright: ignore[reportAttributeAccessIssue]
+                and term.datatype.value == CDT.ucumunit.value):                         # pyright: ignore[reportAttributeAccessIssue]
+                    term = literal(si_ucum_units(term.value), term.datatype)            # pyright: ignore[reportAttributeAccessIssue]
+                statements.append(Triple(statement.subject, statement.predicate, term))
+            variant.add_statements(statements)
+            variants[system] = variant
+        return variants[system]
 
     def element_template(self, element_type: NamedNode, domain_uri: NamedNode|None) -> BondgraphElementTemplate|None:
     #================================================================================================================

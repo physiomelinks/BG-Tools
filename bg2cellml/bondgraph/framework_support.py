@@ -219,7 +219,7 @@ class Variable:
         if value_units is not None and value_units != self.__units and not value_units.is_dimensionless():
             if not value_units.is_compatible_with(self.__units):
                 return f'Value of {self.__name} has units {value_units}, not compatible with {self.__units}'
-            number = value_units.convert(number, self.__units)
+            number = float(f'{value_units.convert(number, self.__units):.15g}')
         self.__value = Value(number, self.__units)
         return None
 

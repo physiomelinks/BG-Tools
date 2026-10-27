@@ -33,6 +33,7 @@ import sympy
 #===============================================================================
 
 from ..annotations import model_annotations, ModelAnnotations
+from ..causality import assign_causality, CausalityError
 from ..bondgraph.framework_support import QUANTITY_STORE, Variable, VOI_VARIABLE
 from ..bondgraph.model_support import BondgraphElement, BondgraphJunction
 from ..bondgraph.utils import clean_name, ModelElement
@@ -187,6 +188,10 @@ class CellMLVariable:
         self.__units = variable.units.name
         if variable.value is not None:
             self.__initial_value = variable.value.value
+            value_units = variable.value.units
+            if (value_units is not None and variable.units_known and value_units != variable.units
+            and not value_units.is_dimensionless() and value_units.is_compatible_with(variable.units)):
+                self.__initial_value = float(f'{value_units.convert(variable.value.value, variable.units):.15g}')
         else:
             self.__initial_value = None
 
@@ -269,6 +274,8 @@ class CellMLModel:
     def __add_fixed(self, variable: Variable):
     #===========================================
         if variable.symbol not in self.__known_fixed:
+            # a domain constant the model gives its own value
+            variable = self.__model.constant_values.get(variable.symbol, variable)
             self.__add_units(variable.units)
             cellml_variable = CellMLVariable(self.__current_component, variable)
             self.__current_component.add_variable(cellml_variable)
@@ -408,6 +415,14 @@ class CellMLModel:
     def __equations_to_mathml(self):
     #===============================
         equations = self.__model.equations
+        # where the bond graph's causality differs from the equations' left-hand sides, solve them for it
+        known = {symbol for symbol, (variable, _) in self.__known_variables.items() if variable.value is not None}
+        known |= self.__known_fixed
+        known |= {str(eq.lhs.expr) for eq in equations if isinstance(eq.lhs, sympy.Derivative)}
+        try:
+            equations = assign_causality(equations, known)
+        except CausalityError as error:
+            self.__model.report_issue(f'Causality: {error}')
         element_odes: list[Equation] = []
         element_algebraics: list[Equation] = []
         junction_algebraics: list[Equation] = []

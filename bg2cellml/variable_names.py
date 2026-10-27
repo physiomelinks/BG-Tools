@@ -134,6 +134,7 @@ def variable_table(model: 'BondgraphModel') -> list[dict[str, str]]:
     for element in model.elements:
         taken.update(constant.symbol for constant in element.domain.constants)
     rows = []
+    assigned: dict[str, str] = {}               # bond graph name -> CellML name, of variables already named
     # in the order of the elements' identifiers, so a name taken twice gets _2 on the later one, as the editor shows
     for element in sorted(model.elements, key=lambda e: e.uri.value.rsplit('#', 1)[-1]):
         ctx = context.get(element.uri.value, {'label': '', 'species': '', 'location': ''})
@@ -147,11 +148,16 @@ def variable_table(model: 'BondgraphModel') -> list[dict[str, str]]:
                                 species=ctx['species'], location=ctx['location'], name=ctx['species'] or identifier)
             else:
                 wanted = old
-            new, n = wanted, 1
-            while new in taken:
-                n += 1
-                new = f'{wanted}_{n}'
-            taken.add(new)
+            if old in assigned and wanted == old:
+                # a variable several elements share (e.g. a parameter a signal sets) keeps its one name
+                new = assigned[old]
+            else:
+                new, n = wanted, 1
+                while new in taken:
+                    n += 1
+                    new = f'{wanted}_{n}'
+                taken.add(new)
+                assigned.setdefault(old, new)
             rows.append({'element': element.uri.value, 'class': element.element_class.rsplit('#', 1)[-1],
                          'variable': var, 'bondgraph': old, 'cellml': new, 'species': ctx['species'],
                          'location': ctx['location'], 'name': identifier})

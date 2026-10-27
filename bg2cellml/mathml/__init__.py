@@ -100,7 +100,14 @@ def sympy_from_mathml(node: etree.Element) -> sympy.Expr:
 
 #===============================================================================
 
-sympy_mathml_printer = MathMLContentPrinter({'disable_split_super_sub': True})
+class _MathMLPrinter(MathMLContentPrinter):
+    """Content MathML with each variable's name as it is (sympy would write alpha as a Greek letter)."""
+    def _print_Symbol(self, sym, style='plain'):
+        ci = self.dom.createElement(self.mathml_tag(sym))
+        ci.appendChild(self.dom.createTextNode(sym.name))
+        return ci
+
+sympy_mathml_printer = _MathMLPrinter({'disable_split_super_sub': True})
 
 def sympy_to_mathml(sympy_object) -> str:
 #========================================

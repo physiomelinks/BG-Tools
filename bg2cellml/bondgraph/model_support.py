@@ -181,6 +181,10 @@ class BondgraphElement(ModelElement):
             model.report_issue(f'Domain mismatch for element {id} with template {element_name}/{domain_uri}')
 
         self.__domain = element_template.domain
+        if parameter_values is not None and self.__domain is not None:
+            # a value for one of the domain's constants is the model's (BondgraphModel.constant_values)
+            constants = {constant.name for constant in self.__domain.constants}
+            parameter_values = {name: value for name, value in parameter_values.items() if name not in constants}
         self.__element_class = element_template.element_class
         self.__type = element_template.uri.value
 
@@ -541,7 +545,8 @@ class BondgraphElement(ModelElement):
                             expr = sympy.Mul(bond_count, expr)
                         if input: bond_inputs.append(expr)
                         else: bond_outputs.append(expr)
-                    if len(self.__power_ports) > 1 and self.__element_class == REACTION:
+                    # a reaction's port potentials (also of a reaction with only one bond: an outflow)
+                    if self.__element_class == REACTION:
                         if (symbol := potential_symbol(node_dict, self.model)) is not None:
                             if bond_count != 1:
                                 symbol = sympy.Mul(bond_count, symbol)
@@ -706,6 +711,16 @@ class SignalBlock(ModelElement):
         declared += [(name, variable.units_of) for name, variable in self.__inputs.items()]
         for name, units_of in declared:
             if units_of is None:
+                continue
+            if '*' in units_of or '/' in units_of:
+                # the units of a product or quotient of two of the block's variables, once both are known
+                operator = '*' if '*' in units_of else '/'
+                left, right = (self.__local(n.strip()) for n in units_of.split(operator, 1))
+                target = self.__local(name)
+                if (target is not None and not target.units_known and left is not None and right is not None
+                and left.units_known and right.units_known):
+                    target.set_units(left.units.times(right.units) if operator == '*' else left.units.over(right.units))
+                    progress = True
                 continue
             a, b = self.__local(name), self.__local(units_of)
             if a is None or b is None:
