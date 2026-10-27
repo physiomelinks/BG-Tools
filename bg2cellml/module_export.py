@@ -42,6 +42,11 @@ in the formats of libcuflynx's ``schemas/module_config.schema.json`` (PhLynx's k
 Every variable is public. A value of the bond graph (a parameter, a potential source's potential) becomes
 a parameter of the module; a state ``X`` starts from a parameter ``X_init``.
 
+A flow or potential source with a bgf:portType (and no species) is a port of that type with variables
+``[flow, potential]`` (a vessel_port's order): an entrance port when its bond leaves it, else an exit port, the
+flow positive into the module at an entrance and out of it at an exit. The source's value is a boundary condition
+(a parameter); the other variable the module computes.
+
 A signal input port block (bgf:SignalInputPort) is an entrance port of its port type (bgf:portType, by default
 ``<name>_port``) with one variable, the block's output, a boundary condition whose value is a parameter; a signal
 output port block (bgf:SignalOutputPort) is an exit port (multi_port, as a signal may go to several modules) with
@@ -63,7 +68,7 @@ import re
 
 import lxml.etree as etree
 
-from bg2cellml.bondgraph.framework_support import POTENTIAL_SOURCE
+from bg2cellml.bondgraph.framework_support import FLOW_SOURCE, POTENTIAL_SOURCE
 from bg2cellml.variable_mapping import variable_mapping, write_variable_mapping
 from bg2cellml.variable_names import naming_rules, rename_cellml, render, rule_for, variable_names
 
@@ -98,6 +103,16 @@ SIGNAL_PORTS = """
         ?uri a ?type .
         FILTER (?type IN (bgf:SignalInputPort, bgf:SignalOutputPort))
         OPTIONAL { ?uri bgf:portType ?portType }
+    }"""
+
+# The model's sources with a port type, and whether a power bond leaves them
+SOURCE_PORTS = """
+    SELECT DISTINCT ?uri ?portType ?outward
+    WHERE {
+        <%MODEL%> bgf:hasBondElement ?uri .
+        ?uri bgf:portType ?portType .
+        FILTER NOT EXISTS { ?uri bgf:hasSpecies ?species }
+        BIND (EXISTS { ?bond bgf:hasSource ?uri . FILTER NOT EXISTS { ?bond a bgf:SignalBond } } AS ?outward)
     }"""
 
 NAME_PATTERN = re.compile(r'[^A-Za-z0-9_]')
@@ -319,10 +334,40 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         interfaces[u_port] = 'in'
         interfaces[v_port] = 'out'
 
-    # Signal ports: an entrance port's variable is a boundary condition (its value a parameter), an exit port's
-    # a variable the module computes
     entrance_ports = []
     exit_ports = []
+
+    # Source ports: [flow, potential], the source's value a boundary condition
+    names = variable_names(model)
+    sources = {row['uri'].value: (row['portType'].value, row['outward'].value in ('true', '1'))
+               for row in model.rdf_graph.query(SOURCE_PORTS.replace('%MODEL%', model.uri.value))}
+    for element in model.elements:
+        if element.uri.value not in sources or element.element_class not in (FLOW_SOURCE, POTENTIAL_SOURCE):
+            continue
+        port_type, entrance = sources[element.uri.value]
+        u = names.get(element.potential.symbol, element.potential.symbol)
+        v = names.get(element.flow.symbol, element.flow.symbol)
+        if element.element_class == POTENTIAL_SOURCE and entrance:
+            # the source's flow is the flow into it: the module takes in minus it
+            flow = _unique(f'v_into_{NAME_PATTERN.sub("_", element.symbol)}', taken)
+            variables[flow] = etree.SubElement(component, C('variable'), name=flow, units=variables[v].get('units'))
+            _equation(math, flow, _signed_sum([(-1, v)]))
+        else:
+            flow = v
+        port_variables_ = [flow, u]
+        for name in port_variables_:
+            units = variables[name].get('units')
+            if (value := variables[name].attrib.pop('initial_value', None)) is not None:
+                parameter(name, units, value, f'{source}: {name}, until the {port_type} port sets it')
+                variables_and_units.append([name, units, 'access', 'boundary_condition'])
+                interfaces[name] = 'in'
+            else:
+                variables_and_units.append([name, units, 'access', 'variable'])
+                interfaces[name] = 'out'
+        (entrance_ports if entrance else exit_ports).append({'port_type': port_type, 'variables': port_variables_})
+
+    # Signal ports: an entrance port's variable is a boundary condition (its value a parameter), an exit port's
+    # a variable the module computes
     for direction, name, port_type in signal_ports(model):
         if name not in variables:
             raise ModuleExportError(f'signal port variable {name} is not in the CellML')

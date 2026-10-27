@@ -31,7 +31,7 @@ import sympy
 from ..mathml import Equation, MathML
 from ..rdf import Literal, NamedNode, namedNode
 from ..rdf import isLiteral, isNamedNode, literal_as_string, uri_fragment
-from ..units import Value
+from ..units import Units, Value
 
 from .framework_support import BondgraphElementTemplate, CompositeTemplate, ElementTemplate
 from .framework_support import Domain, NamedPortVariable, PowerPort, Variable
@@ -238,14 +238,9 @@ class BondgraphElement(ModelElement):
 
         # Defer assignment until we have the full bondgraph
         self.__variable_values: dict[str, VariableValue] = {}
-        if parameter_values is None:
-            if len(element_template.parameters):
-                model.report_issue(f'No parameters given for element {self.pretty_name}')
-        else:
-            for name in element_template.parameters.keys():
-                if name not in parameter_values:
-                    model.report_issue(f'Missing value for parameter {name} of element {self.pretty_name}')
-                    continue
+        self.__missing_parameters = [name for name in element_template.parameters.keys()
+                                     if parameter_values is None or name not in parameter_values]
+        if parameter_values is not None:
             self.__variable_values.update(parameter_values)
         if variable_values is not None:
             for name in variable_values.keys():
@@ -260,6 +255,7 @@ class BondgraphElement(ModelElement):
                                                      for name, variable in element_template.signal_inputs.items()}
         self.__connected_inputs: dict[str, Variable] = {}
         self.__modulations: list[tuple[str, Variable, int]] = []
+        self.__set_by_signal: dict[str, Variable] = {}      # parameters (or a source's value) a signal sets
 
         self.__intrinsic_name: str|None = None
         if (intrinsic_var := element_template.intrinsic_variable) is not None:
@@ -339,7 +335,24 @@ class BondgraphElement(ModelElement):
 
     def connect_signal(self, name: str, variable: Variable):
     #======================================================
-        self.__connected_inputs[name] = variable
+        if name in self.__signal_inputs:
+            self.__connected_inputs[name] = variable
+        else:
+            self.__set_by_signal[name] = variable
+
+    @property
+    def set_by_signal(self) -> dict[str, Variable]:
+        '''The parameters (and a source's value, v or u) signals set, in place of a value.'''
+        return self.__set_by_signal
+
+    def can_set(self, name: str) -> bool:
+    #====================================
+        return self.can_modulate(name)
+
+    def settable_units(self, name: str) -> Units|None:
+    #=================================================
+        variable = self.__variables.get(name)
+        return variable.units if variable is not None and variable.units_known else None
 
     def add_modulation(self, name: str, signal: Variable, exponent: int):
     #====================================================================
@@ -406,6 +419,9 @@ class BondgraphElement(ModelElement):
             self.report_issue(f'Source {self.pretty_name} is given by an expression and cannot be modulated')
             return
         name = self.__intrinsic_name
+        if name in self.__set_by_signal:
+            self.report_issue(f'The value of source {self.pretty_name} is set by a signal and cannot be modulated')
+            return
         base_name = f'{name}0'
         intrinsic = self.__intrinsic_variable
         base = Variable(self, f'{base_name}_{self.symbol}', units=intrinsic.units, type=intrinsic.type)
@@ -417,9 +433,30 @@ class BondgraphElement(ModelElement):
             f'<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>{name}</ci><ci>{base_name}</ci></apply></math>')
         self.__modulations = [(base_name if n == name else n, s, e) for n, s, e in self.__modulations]
 
+    def __set_parameters_by_signals(self):
+    #=====================================
+        # A parameter set by a signal is the signal's variable; a source's value set by one is defined as it
+        for name in self.__missing_parameters:
+            if name not in self.__set_by_signal:
+                self.report_issue(f'Missing value for parameter {name} of element {self.pretty_name}')
+        for name, signal in self.__set_by_signal.items():
+            self.__variable_values.pop(name, None)
+            if name == self.__intrinsic_name and self.__element_class in [FLOW_SOURCE, POTENTIAL_SOURCE]:
+                if self.__constitutive_relation is not None:
+                    self.report_issue(f'Source {self.pretty_name} is given by an expression and cannot be set by a signal')
+                    continue
+                self.__intrinsic_variable.clear_value()
+                self.__constitutive_relation = MathML.from_string(
+                    f'<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>{name}</ci><ci>{name}_signal</ci></apply></math>')
+                self.__connected_inputs[f'{name}_signal'] = signal
+            else:
+                self.__variables[name] = signal
+
     # Substitute variable symbols into the constitutive relation
     def assign_variables(self, bond_graph: nx.DiGraph):
     #==================================================
+        self.__set_parameters_by_signals()
+
         ## Remove variables associated with any unconnected ports
         unused_ports: list[str] = []
         for port_id, port in self.__power_ports.items():

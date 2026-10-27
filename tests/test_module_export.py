@@ -128,6 +128,24 @@ def test_signal_port_blocks_are_entrance_and_exit_ports(tmp_path):
     interface = {v.get('name'): v.get('public_interface') for v in root.iter(f'{CELLML}variable')}
     assert interface['P_sys'] == 'in' and interface['f_ab'] == 'out'
 
+def test_sources_with_a_port_type_are_vessel_ports(tmp_path):
+    '''The inlet and outlet pressures are vessel ports [flow, pressure]: the entrance's flow is into the module
+    (minus the source's), the exit's out of it; the pressures are boundary conditions. Signal input ports set the
+    wall's external pressure and the intake flow.'''
+    export(MODELS / 'vessel_inertance.ttl', tmp_path, 'vessel')
+    (entry,) = json.loads((tmp_path / 'vessel_bondgraph_v01_modules_config.json').read_text())
+    entrances = {p['port_type']: p['variables'] for p in entry['entrance_ports']}
+    exits = {p['port_type']: p['variables'] for p in entry['exit_ports']}
+    assert entrances == {'vessel_port': ['v_into_P_in', 'u_P_in'], 'external_pressure_port': ['u_ext'],
+                         'blood_intake_port': ['v_blood_intake']}
+    assert exits == {'vessel_port': ['v_P_out', 'u_P_out'], 'arterial_pressure_port': ['u_vessel'],
+                     'volume_port': ['q_vessel']}
+    kinds = {name: kind for name, _, _, kind in entry['variables_and_units']}
+    assert kinds['u_P_in'] == kinds['u_P_out'] == kinds['u_ext'] == 'boundary_condition'
+    assert kinds['v_into_P_in'] == kinds['v_P_out'] == 'variable'
+    values, _ = evaluate(with_parameters(tmp_path, 'vessel'))
+    assert values['v_into_P_in'] == pytest.approx(0.1)        # the inlet inertance's flow
+
 def _schema(name: str):
     path = Path(LIBCUFLYNX_SRC or '') / 'libcuflynx' / 'schemas' / name
     if not LIBCUFLYNX_SRC or not path.exists():

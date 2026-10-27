@@ -61,7 +61,8 @@
     a bgf:HydraulicCompliance ;
     bgf:hasValue "0.6 L"^^cdt:ucum ;
     bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.05 L2/J"^^cdt:ucum ] ,
-                       [ bgf:varName "q_us" ; bgf:hasValue "0.1 L"^^cdt:ucum ] .
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.1 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
 
 :R_eff
     a bgf:HydraulicResistanceNode ;
@@ -71,7 +72,8 @@
     a bgf:HydraulicComplianceNode ;
     bgf:hasValue "0.4 L"^^cdt:ucum ;
     bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.1 L2/J"^^cdt:ucum ] ,
-                       [ bgf:varName "q_us" ; bgf:hasValue "0.2 L"^^cdt:ucum ] .
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.2 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
 
 :R_out
     a bgf:HydraulicResistanceNode ;

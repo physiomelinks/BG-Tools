@@ -6,15 +6,20 @@
 
 # A vessel between an inlet and an outlet pressure: an inlet segment with inertance and a viscous loss, a compliance
 # with a viscous wall, an outlet inertance into a stiffening (bladder-like) store, which empties through a one-way
-# resistance against an opposing pressure.
+# resistance against an opposing pressure. As a module: the inlet and outlet pressures are vessel ports (entrance
+# and exit), the wall's external pressure and a blood intake come from entrance ports (signals setting a parameter
+# and a flow source's value), and the vessel's pressure and volume go to exit ports.
 
 :vessel_inertance
     a bgf:BondgraphModel ;
-    bgf:usesTemplate tpl:hydraulic.ttl ;
-    bgf:hasBondElement :P_in, :I_in, :q_v, :I_out, :q_b, :R_void, :P_out .
+    bgf:usesTemplate tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:hasBondElement :P_in, :I_in, :q_v, :I_out, :q_b, :R_void, :P_out, :Sf_intake ;
+    bgf:hasSignalBlock :u_ext, :v_blood_intake, :u_vessel, :q_vessel ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4 .
 
 :P_in
     a bgf:HydraulicPotential ;
+    bgf:portType "vessel_port" ;
     bgf:hasValue "13 J/L"^^cdt:ucum .
 
 :I_in
@@ -29,6 +34,10 @@
     bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.1 L2/J"^^cdt:ucum ] ,
                        [ bgf:varName "q_us" ; bgf:hasValue "0.5 L"^^cdt:ucum ] ,
                        [ bgf:varName "R_v" ; bgf:hasValue "0.1 J.s/L2"^^cdt:ucum ] .
+
+:Sf_intake
+    a bgf:HydraulicFlow ;
+    bgf:hasSymbol "Sf_intake" .
 
 :I_out
     a bgf:HydraulicInertanceNode ;
@@ -49,6 +58,7 @@
 
 :P_out
     a bgf:HydraulicPotential ;
+    bgf:portType "vessel_port" ;
     bgf:hasValue "0 J/L"^^cdt:ucum .
 
 :b1 bgf:hasSource :P_in ; bgf:hasTarget :I_in .
@@ -57,3 +67,33 @@
 :b4 bgf:hasSource :I_out ; bgf:hasTarget :q_b .
 :b5 bgf:hasSource :q_b ; bgf:hasTarget :R_void .
 :b6 bgf:hasSource :R_void ; bgf:hasTarget :P_out .
+:b7 bgf:hasSource :Sf_intake ; bgf:hasTarget :q_v .
+
+# Signals
+
+:u_ext
+    a bgf:SignalInputPort ;
+    bgf:hasSymbol "u_ext" ;
+    bgf:portType "external_pressure_port" ;
+    bgf:hasValue "0.2 J/L"^^cdt:ucum .
+
+:v_blood_intake
+    a bgf:SignalInputPort ;
+    bgf:hasSymbol "v_blood_intake" ;
+    bgf:portType "blood_intake_port" ;
+    bgf:hasValue "0.01 L/s"^^cdt:ucum .
+
+:u_vessel
+    a bgf:SignalOutputPort ;
+    bgf:hasSymbol "u_vessel" ;
+    bgf:portType "arterial_pressure_port" .
+
+:q_vessel
+    a bgf:SignalOutputPort ;
+    bgf:hasSymbol "q_vessel" ;
+    bgf:portType "volume_port" .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :u_ext ; bgf:hasTarget :q_v ; bgf:signalInput "u_ext" .
+:s2 a bgf:SignalBond ; bgf:hasSource :v_blood_intake ; bgf:hasTarget :Sf_intake ; bgf:signalInput "v" .
+:s3 a bgf:SignalBond ; bgf:hasSource :q_v ; bgf:hasTarget :u_vessel ; bgf:signalVariable "u" .
+:s4 a bgf:SignalBond ; bgf:hasSource :q_v ; bgf:hasTarget :q_vessel ; bgf:signalVariable "q" .

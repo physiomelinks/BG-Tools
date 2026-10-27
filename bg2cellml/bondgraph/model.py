@@ -400,6 +400,14 @@ class BondgraphModel(Labelled):   ## Component ??
                 target.add_modulation(modulates, signal, exponent if exponent is not None else 1)
                 continue
             inputs = target.inputs if isinstance(target, SignalBlock) else target.signal_inputs
+            if (isinstance(target, BondgraphElement) and (name := literal_as_string(row.get('input'))) is not None  # pyright: ignore[reportArgumentType]
+            and name not in inputs and target.can_set(name)):
+                # the signal sets one of the element's parameters, or a source's value
+                if name in target.set_by_signal:
+                    self.report_issue(f'Parameter {name} of {target.pretty_name} has two signal bonds')
+                    continue
+                target.connect_signal(name, signal)
+                continue
             if (name := literal_as_string(row.get('input'))) is None:          # pyright: ignore[reportArgumentType]
                 free = [n for n in inputs if n not in target.connected_inputs]
                 if len(free) == 0:
@@ -417,6 +425,11 @@ class BondgraphModel(Labelled):   ## Component ??
         while any([block.resolve_units() for block in self.__blocks.values()]):
             pass
         for element in self.__elements.values():
+            for name, source in element.set_by_signal.items():
+                units = element.settable_units(name)
+                if not source.units_known or units is None or not source.units.same_scale(units):
+                    self.report_issue(f'The signal setting {name} of {element.pretty_name} has units '
+                                      f'{source.units if source.units_known else "unknown"}, not {units}')
             for name, source in element.connected_inputs.items():
                 declared = element.signal_inputs[name]
                 if not source.units_known:

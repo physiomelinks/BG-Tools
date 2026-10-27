@@ -34,17 +34,19 @@ RT = 2578.73058
 
 def test_a_vessel_with_inertances_a_viscous_wall_and_a_one_way_outlet():
     '''Inlet segment dv/dt = (u - R v)/I, wall u = (q - q_us)/C + R_v dq/dt, outlet inertance dv/dt = u/I into a
-    stiffening store u = E (q - q_hat)/(q_bar - q)^2, emptied through v = k max(u - u_0, 0).'''
+    stiffening store u = E (q - q_hat)/(q_bar - q)^2, emptied through v = k max(u - u_0, 0). The wall's external
+    pressure u_ext and a blood intake flow are set by signals (a parameter and a flow source's value).'''
     values, rates = evaluate(cellml_from_bgrdf(MODELS / 'vessel_inertance.ttl'))
-    v_in, v_out = 0.1, 0.05
-    u_v = (1.2 - 0.5)/0.1 + 0.1*(v_in - v_out)
+    v_in, v_out, intake = 0.1, 0.05, 0.01
+    u_v = (1.2 - 0.5)/0.1 + 0.1*(v_in - v_out + intake) + 0.2
     u_b = 0.1*(0.2 - 0.05)/(0.6 - 0.2)**2
     assert values['u_q_v'] == pytest.approx(u_v)
     assert rates['v_I_in'] == pytest.approx((13 - u_v - 2*v_in)/0.01)
     assert rates['v_I_out'] == pytest.approx((u_v - u_b)/0.05)
     assert values['u_q_b'] == pytest.approx(u_b)
     assert values['v_R_void'] == 0.0            # u_b is below the opposing pressure, so nothing flows
-    assert rates['q_b'] == pytest.approx(v_out) and rates['q_v'] == pytest.approx(v_in - v_out)
+    assert rates['q_b'] == pytest.approx(v_out) and rates['q_v'] == pytest.approx(v_in - v_out + intake)
+    assert values['u_vessel'] == pytest.approx(u_v) and values['q_vessel'] == pytest.approx(1.2)
 
 def test_angiotensin_scales_a_resistance_and_a_compliance():
     '''ang_scale = 1 + alpha q/(q + q_h) divides the efferent conductance and the peritubular compliance; the
@@ -117,10 +119,12 @@ STORES = PREFIXES + '''
 :m a bgf:BondgraphModel ; bgf:hasBondElement :q_1, :R, :q_2 .
 :q_1 a bgf:HydraulicComplianceNode ; bgf:hasValue "1 L"^^cdt:ucum ;
     bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "1 L2/J"^^cdt:ucum ] ,
-                       [ bgf:varName "q_us" ; bgf:hasValue "0 L"^^cdt:ucum ] .
+                       [ bgf:varName "q_us" ; bgf:hasValue "0 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
 :q_2 a bgf:HydraulicComplianceNode ; bgf:hasValue "0.5 L"^^cdt:ucum ;
     bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "1 L2/J"^^cdt:ucum ] ,
-                       [ bgf:varName "q_us" ; bgf:hasValue "0 L"^^cdt:ucum ] .
+                       [ bgf:varName "q_us" ; bgf:hasValue "0 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
 :R a bgf:HydraulicResistanceNode ; bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "1 L2.s-1.J-1"^^cdt:ucum ] .
 :b1 bgf:hasSource :q_1 ; bgf:hasTarget :R .
 :b2 bgf:hasSource :R ; bgf:hasTarget :q_2 .
