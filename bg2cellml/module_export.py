@@ -40,7 +40,8 @@ in the formats of libcuflynx's ``schemas/module_config.schema.json`` (PhLynx's k
                                             data_reference and sourced "no")
 
 Every variable is public. A value of the bond graph (a parameter, a potential source's potential) becomes
-a parameter of the module; a state ``X`` starts from a parameter ``X_init``.
+a parameter of the module; a state ``X`` starts from a parameter ``X_init`` (a parameter of that name and the state's value, e.g. a Constant
+block's that an equation also uses, is that parameter).
 
 A flow or potential source with a bgf:portType (and no species) is a port of that type with variables
 ``[flow, potential]`` (a vessel_port's order): an entrance port when its bond leaves it, else an exit port, the
@@ -602,6 +603,12 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
 
     # Every other value becomes a parameter, a state's initial value a parameter <state>_init
     port_variables = set(interfaces) - port_states
+    values = {name: variable.get('initial_value') for name, variable in variables.items()}
+    def same_value(a: str|None, b: str|None) -> bool:
+        try:
+            return a is not None and b is not None and float(a) == float(b)
+        except ValueError:
+            return False
     ordered: list[etree._Element] = []
     for name, variable in list(variables.items()):
         ordered.append(variable)
@@ -618,7 +625,16 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
             continue
         if name in states:
             wanted = ref.initial_names.get(name) if ref is not None else None
-            init = _unique(wanted if wanted is not None and wanted not in taken else f'{name}_init', taken)
+            wanted = wanted or f'{name}_init'
+            if (wanted in variables and wanted not in states and wanted not in port_variables
+            and same_value(values.get(wanted), value)):
+                # a parameter of that name and value (e.g. a Constant block's, the state's reference) is its initial
+                # value
+                variable.set('initial_value', wanted)
+                variable.set('public_interface', 'out')
+                variables_and_units.append([name, units, 'access', 'variable'])
+                continue
+            init = _unique(wanted if wanted not in taken else f'{name}_init', taken)
             variable.set('initial_value', init)
             ordered.append(etree.Element(C('variable'), name=init, units=units, public_interface='in'))
             if value is not None:

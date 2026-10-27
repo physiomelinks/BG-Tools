@@ -189,6 +189,17 @@ def test_a_signal_output_port_of_its_input_shares_a_variable(tmp_path):
     assert {'v_init', 'q_init'} <= set(parameters(tmp_path))
 
 
+def test_a_parameter_of_the_states_initial_name_and_value_is_its_initial_value(tmp_path):
+    export(MODELS / 'vein_wall.ttl', tmp_path, 'vein')
+    cellml = (tmp_path / 'vein_bondgraph_v01_modules.cellml').read_text()
+    # the Constant block q_init, which r_q also uses, is the volume's initial value: one parameter q_init
+    assert 'initial_value="q_init"' in cellml and 'q_init_2' not in cellml
+    values = parameters(tmp_path)
+    assert values['q_init'] == 1.3e-03 and 'q_init_2' not in values
+    values, _ = evaluate(with_parameters(tmp_path, 'vein'))
+    assert values['r_q'] == pytest.approx(1.0)
+
+
 def test_a_reference_version_names_its_states_initial_values(tmp_path):
     reference = tmp_path / 'reference'
     export(MODELS / 'vein_wall.ttl', reference, 'vein')
@@ -205,7 +216,7 @@ def test_a_reference_version_names_its_states_initial_values(tmp_path):
                       reference=reference)
     asyncio.run(convert())
     values = parameters(tmp_path / 'out')
-    assert values['q_C_init'] == 1.3e-03 and 'q_init' not in values and 'v_init' in values
+    assert values['q_C_init'] == 1.3e-03 and 'v_init' in values
     assert 'initial_value="q_C_init"' in (tmp_path / 'out' / 'vein_bondgraph_v01_modules.cellml').read_text()
 
 #===============================================================================

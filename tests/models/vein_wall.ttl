@@ -8,7 +8,8 @@
 # vessel_port gives; the difference fills a compliance through a viscous wall (a resistance of conductance
 # G = C/tau_v). The junction's balance is written for the inertance's flow, a state, so causality solves it for the
 # wall's flow and the wall's equation for the node's pressure. The flow v is also the module's flow_port, through a
-# signal output port of its input (bgf:portVariables "u"), and the volume q its volume_port, of no multi_port.
+# signal output port of its input (bgf:portVariables "u"), and the volume q its volume_port, of no multi_port. The
+# relative volume r_q = q/q_init uses the volume's initial value, a Constant block q_init, as its reference.
 
 :vein_wall
     a bgf:BondgraphModel ;
@@ -16,8 +17,8 @@
     bgf:unitSystem "SI" ;
     bgf:hasBondElement :Sf_in, :R_w, :C_v, :I_v, :P_out ;
     bgf:hasJunctionStructure :A ;
-    bgf:hasSignalBlock :C, :tau_v, :G_v, :flow_out, :volume_out ;
-    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5, :s6 .
+    bgf:hasSignalBlock :C, :tau_v, :G_v, :flow_out, :volume_out, :q_init, :r_q ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5, :s6, :s7, :s8 .
 
 :Sf_in a bgf:HydraulicFlow ; bgf:hasSymbol "Sf_in" ; bgf:portType "vessel_port" ;
     bgf:hasValue "2e-04 m3/s"^^cdt:ucum ;
@@ -60,3 +61,7 @@
 :s4 a bgf:SignalBond ; bgf:hasSource :C ; bgf:hasTarget :C_v ; bgf:signalInput "C" .
 :s5 a bgf:SignalBond ; bgf:hasSource :I_v ; bgf:hasTarget :flow_out ; bgf:signalVariable "v" .
 :s6 a bgf:SignalBond ; bgf:hasSource :C_v ; bgf:hasTarget :volume_out ; bgf:signalVariable "q" .
+:q_init a bgf:Constant ; bgf:hasSymbol "q_init" ; bgf:hasValue "1.3e-03 m3"^^cdt:ucum .
+:r_q a bgf:Ratio ; bgf:hasSymbol "r_q" .
+:s7 a bgf:SignalBond ; bgf:hasSource :C_v ; bgf:hasTarget :r_q ; bgf:signalVariable "q" ; bgf:signalInput "u_1" .
+:s8 a bgf:SignalBond ; bgf:hasSource :q_init ; bgf:hasTarget :r_q ; bgf:signalInput "u_2" .
