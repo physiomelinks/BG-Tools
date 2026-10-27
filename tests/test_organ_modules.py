@@ -161,6 +161,54 @@ def test_an_entrance_flow_sources_port_has_the_nodes_pressure(tmp_path):
     assert 'RT' not in parameters(tmp_path)           # a constant no equation uses is left out
 
 #===============================================================================
+# A vein whose wall resistance gives the inlet node's pressure, and ports that share a variable
+
+def test_a_junction_balance_written_for_a_state_is_solved_for_the_wall_flow():
+    values, rates = evaluate(cellml_from_bgrdf(MODELS / 'vein_wall.ttl'))
+    G = 1e-06/0.01
+    v_wall = 2e-04 - 1e-04                          # the inflow less the inertance's flow (a state)
+    assert values['v_wall'] == pytest.approx(v_wall)
+    assert values['u_A'] == pytest.approx((1.3e-03 - 1e-03)/1e-06 + v_wall/G)
+    assert rates['q'] == pytest.approx(v_wall)
+    assert rates['v'] == pytest.approx((values['u_A'] - 2000 - 1e6*1e-04)/0.01)
+
+
+def test_a_signal_output_port_of_its_input_shares_a_variable(tmp_path):
+    export(MODELS / 'vein_wall.ttl', tmp_path, 'vein')
+    (entry,) = json.loads((tmp_path / 'vein_bondgraph_v01_modules_config.json').read_text())
+    exits = {p['port_type']: p for p in entry['exit_ports']}
+    # the inertance's flow is in the vessel_port and, under its own name, the flow_port (multi_port True by default)
+    assert exits['vessel_port']['variables'] == ['v', 'u_out']
+    assert exits['flow_port'] == {'port_type': 'flow_port', 'variables': ['v'], 'multi_port': 'True'}
+    # bgf:multiPort "False": no multi_port
+    assert exits['volume_port'] == {'port_type': 'volume_port', 'variables': ['q']}
+    names = {name for name, *_ in entry['variables_and_units']}
+    assert not names & {'flow_out', 'volume_out'}
+    cellml = (tmp_path / 'vein_bondgraph_v01_modules.cellml').read_text()
+    assert 'flow_out' not in cellml and 'volume_out' not in cellml
+    assert {'v_init', 'q_init'} <= set(parameters(tmp_path))
+
+
+def test_a_reference_version_names_its_states_initial_values(tmp_path):
+    reference = tmp_path / 'reference'
+    export(MODELS / 'vein_wall.ttl', reference, 'vein')
+    path = reference / 'vein_bondgraph_v01_modules.cellml'
+    path.write_text(path.read_text().replace('initial_value="q_init"', 'initial_value="q_C_init"'))
+    import asyncio
+    from bg2cellml.bondgraph.framework import get_framework
+    from bg2cellml.module_export import export_module
+    async def convert():
+        framework = await get_framework()
+        source = MODELS / 'vein_wall.ttl'
+        model = framework.make_bondgraph_model(source.resolve().as_uri(), source.read_text())
+        export_module(model, model.make_cellml_model().to_xml(), tmp_path / 'out', 'vein', 'bondgraph_v01',
+                      reference=reference)
+    asyncio.run(convert())
+    values = parameters(tmp_path / 'out')
+    assert values['q_C_init'] == 1.3e-03 and 'q_init' not in values and 'v_init' in values
+    assert 'initial_value="q_C_init"' in (tmp_path / 'out' / 'vein_bondgraph_v01_modules.cellml').read_text()
+
+#===============================================================================
 # The gut of BVC-RAAS5: a one-way pump and fluxes that laws of signal blocks set
 
 def test_a_one_way_pump_and_fluxes_set_by_signals():

@@ -50,21 +50,24 @@ flow positive into the module at an entrance and out of it at an exit. The sourc
 A signal input port block (bgf:SignalInputPort) is an entrance port of its port type (bgf:portType, by default
 ``<name>_port``) with one variable, the block's output, a boundary condition whose value is a parameter; a signal
 output port block (bgf:SignalOutputPort) is an exit port (multi_port, as a signal may go to several modules) with
-its output, a variable.
+its output, a variable. With bgf:portVariables ``"u"`` a signal output port's variable is instead its input, the
+variable its signal comes from, under that variable's own name (the block adds no variable): so a variable that is
+already part of one port (e.g. an inertance's flow in a vessel_port) can be part of others.
 
 Any other bond element or signal block with a bgf:portType is an exit port of its quantity (a store), its output (a
 block) or its flow. An element's bgf:portVariables names the variables it gives its port instead (by their template
 names: ``"v"``, ``"q"``, ``"u v"``, a parameter), bgf:portDirection makes the port an ``entrance``, ``exit`` or
 ``general`` port and bgf:multiPort sets its multi_port. The elements with one port type and direction that have a
-bgf:portOrder make one port, their variables in that order. A port variable with a value (a source's value, a
-parameter, a signal input port's value) is a boundary condition and its value a parameter; a state stays a state
-(from its ``_init`` parameter); any other variable the module computes.
+bgf:portOrder make one port, their variables in that order. bgf:multiPort ``"False"`` gives a port no multi_port. A
+port variable with a value (a source's value, a parameter, a signal input port's value) is a boundary condition and
+its value a parameter; a state stays a state (from its ``_init`` parameter); any other variable the module computes.
 
 ``reference``, an existing version of the module (its directory), keeps that version's form where the bond graph
 does not say: the names of its units (each variable's, when the definitions agree), its parameters' data_reference,
 sourced and other keys (the values are the bond graph's; a different value is reported), its config's other keys
 (e.g. required_citations_uncertain), licence, creators, citations and references, its tests.yaml and
-verification_config.json, and its order of variables, parameters and ports.
+verification_config.json, its names of its states' initial values (``initial_value`` in its CellML, e.g. a state
+``q_C_change`` from ``q_C_init``), and its order of variables, parameters and ports.
 
 A chemostat (a potential source with a species) is the module's link to its surroundings, and a bond graph
 may have several copies of one, one beside each reaction using it. Each species and location's copies get
@@ -210,6 +213,20 @@ def _signed_sum(terms: list[tuple[int, str]]) -> etree._Element:
             etree.SubElement(minus, M('minus'))
             minus.append(_ci(name))
     return apply
+
+def _drop_variable(component: etree._Element, math: etree._Element, name: str):
+    """Remove a variable and the equation defining it."""
+    for variable in component.findall(C('variable')):
+        if variable.get('name') == name:
+            component.remove(variable)
+    for apply in list(component.iter(M('apply'))):
+        children = list(apply)
+        if (len(children) == 3 and children[0].tag == M('eq') and children[1].tag == M('ci')
+        and (children[1].text or '').strip() == name):
+            parent = apply.getparent()
+            parent.remove(apply)
+            if parent.tag == M('math') and len(parent) == 0 and parent is not math:
+                parent.getparent().remove(parent)
 
 def _unique(name: str, taken: set[str]) -> str:
     unique, n = name, 1
@@ -418,6 +435,8 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
     def add_port(uri: str|None, port_type: str, direction: str, port_variables_: list[str], multi: str|None=None):
         option = options.get(uri, {}) if uri is not None else {}
         multi = option.get('multi') or multi
+        if multi is not None and multi.strip().lower() == 'false':
+            multi = None
         if option.get('order') is not None:
             # one port of the elements with this type and direction that have a bgf:portOrder
             key = (port_type, direction)
@@ -515,10 +534,22 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
 
     # Signal ports: an entrance port's variable is a boundary condition (its value a parameter), an exit port's
     # a variable the module computes
+    blocks = {block.uri.value: block for block in model.signal_blocks}
     for kind, name, port_type, uri in _signal_port_blocks(model):
         if name not in variables:
             raise ModuleExportError(f'signal port variable {name} is not in the CellML')
         direction = options.get(uri, {}).get('direction') or kind
+        if kind == 'exit' and options.get(uri, {}).get('variables') == ['u']:
+            # the port of the variable the signal comes from, under its own name: the block's output goes
+            if (signal := blocks[uri].connected_inputs.get('u')) is None:
+                raise ModuleExportError(f'signal output port {name} has no signal')
+            own = names.get(signal.symbol, signal.symbol)
+            _drop_variable(component, math, name)
+            variables.pop(name)
+            taken.discard(name)
+            port_variable(own, port_type, direction)
+            add_port(uri, port_type, direction, [own], multi='True')
+            continue
         units = variables[name].get('units')
         if kind == 'entrance':
             if (value := variables[name].attrib.pop('initial_value', None)) is not None:
@@ -586,7 +617,8 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
             variable.set('public_interface', 'in')
             continue
         if name in states:
-            init = _unique(f'{name}_init', taken)
+            wanted = ref.initial_names.get(name) if ref is not None else None
+            init = _unique(wanted if wanted is not None and wanted not in taken else f'{name}_init', taken)
             variable.set('initial_value', init)
             ordered.append(etree.Element(C('variable'), name=init, units=units, public_interface='in'))
             if value is not None:
@@ -750,6 +782,14 @@ class ReferenceVersion:
             self.parameters = {k: v for k, v in json.loads(path.read_text()).items()
                                if k != 'schema_version' and isinstance(v, dict) and 'value' in v}
         self.units_of = {row[0]: row[1] for row in self.config.get('variables_and_units', [])}
+        # each state's initial value's name (a variable's initial_value that is a name)
+        self.initial_names: dict[str, str] = {}
+        cellml = text('_modules.cellml')
+        if cellml:
+            for variable in etree.fromstring(cellml.encode()).iter(C('variable')):
+                value = variable.get('initial_value')
+                if value is not None and re.fullmatch(r'[A-Za-z_]\w*', value):
+                    self.initial_names[variable.get('name')] = value
         self.__units: dict[str, etree._Element] = {}
         units_texts = [text('_units.cellml')] + [Path(f).read_text() for f in units_files or []]
         for units_text in units_texts:

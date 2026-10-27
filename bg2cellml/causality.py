@@ -16,7 +16,8 @@ Causality: each algebraic equation computes one variable.
 A bond graph's equations are written with a fixed variable on each left-hand side: a resistance's flow from its
 potentials, a junction's potential or flow from its bonds'. Where the bond graph's causality differs, e.g. a
 resistance between a node a flow source feeds and a compliance (its flow is given, so it must give the node's
-pressure), one variable has two equations and another none. ``assign_causality`` then matches each equation to a
+pressure), one variable has two equations and another none, or an equation is written for a known variable (a
+junction's balance for an inertance's flow, a state). ``assign_causality`` then matches each equation to a
 variable it computes (keeping its own left-hand side where it can, by augmenting paths from the over-determined
 equations to the variables no equation computes) and solves each equation whose variable changed for it.
 """
@@ -50,7 +51,10 @@ def assign_causality(equations: list[Equation], known: set[str]) -> list[Equatio
         if n not in unknowns_of:
             unknown |= {s for s in eq.rhs.free_symbols if isinstance(s, sympy.Symbol) and s.name not in known}
     undefined = {s for s in unknown if s not in lhs_count}
-    if not undefined or all(count == 1 for count in lhs_count.values()):
+    # an equation for a known variable (a state, e.g. a junction's balance written for an inertance's flow) must
+    # compute another
+    known_lhs = {n for n in algebraic if equations[n].lhs.name in known}
+    if not known_lhs and (not undefined or all(count == 1 for count in lhs_count.values())):
         # nothing to change (or nothing an equation could be solved for instead)
         return equations
 
@@ -60,7 +64,7 @@ def assign_causality(equations: list[Equation], known: set[str]) -> list[Equatio
     unmatched = []
     for n in algebraic:
         lhs = equations[n].lhs
-        if lhs not in owner:
+        if n not in known_lhs and lhs not in owner:
             match[n], owner[lhs] = lhs, n
         else:
             unmatched.append(n)

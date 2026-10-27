@@ -1,0 +1,62 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# A vein in SI units: the inflow v_in meets the outflow v (an inertance's state) at the inlet node, whose pressure u the
+# vessel_port gives; the difference fills a compliance through a viscous wall (a resistance of conductance
+# G = C/tau_v). The junction's balance is written for the inertance's flow, a state, so causality solves it for the
+# wall's flow and the wall's equation for the node's pressure. The flow v is also the module's flow_port, through a
+# signal output port of its input (bgf:portVariables "u"), and the volume q its volume_port, of no multi_port.
+
+:vein_wall
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:unitSystem "SI" ;
+    bgf:hasBondElement :Sf_in, :R_w, :C_v, :I_v, :P_out ;
+    bgf:hasJunctionStructure :A ;
+    bgf:hasSignalBlock :C, :tau_v, :G_v, :flow_out, :volume_out ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5, :s6 .
+
+:Sf_in a bgf:HydraulicFlow ; bgf:hasSymbol "Sf_in" ; bgf:portType "vessel_port" ;
+    bgf:hasValue "2e-04 m3/s"^^cdt:ucum ;
+    bgf:hasVariableName [ bgf:forVariable "v" ; bgf:cellmlName "v_in" ] , [ bgf:forVariable "u" ; bgf:cellmlName "u" ] .
+:A a bgf:ZeroNode ; bgf:hasSymbol "u_A" .
+:R_w a bgf:HydraulicResistanceNode ; bgf:hasSymbol "R_w" ;
+    bgf:hasVariableName [ bgf:forVariable "v" ; bgf:cellmlName "v_wall" ] , [ bgf:forVariable "u" ; bgf:cellmlName "u_R" ] .
+:C_v a bgf:HydraulicComplianceNode ; bgf:hasSymbol "C_v" ; bgf:hasValue "1.3e-03 m3"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "q_us" ; bgf:hasSymbol "q_us" ; bgf:hasValue "1e-03 m3"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasSymbol "u_ext" ; bgf:hasValue "0 J/m3"^^cdt:ucum ] ;
+    bgf:hasVariableName [ bgf:forVariable "q" ; bgf:cellmlName "q" ] , [ bgf:forVariable "u" ; bgf:cellmlName "u_C" ] ,
+                        [ bgf:forVariable "v" ; bgf:cellmlName "v_C" ] .
+:I_v a bgf:ResistiveHydraulicInertanceNode ; bgf:hasSymbol "I_v" ;
+    bgf:portType "vessel_port" ; bgf:portVariables "v" ; bgf:portDirection "exit" ; bgf:portOrder 1 ;
+    bgf:hasValue "1e-04 m3/s"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "I" ; bgf:hasSymbol "I" ; bgf:hasValue "0.01 J.s2/m6"^^cdt:ucum ] ,
+                       [ bgf:varName "R" ; bgf:hasSymbol "R" ; bgf:hasValue "1e+06 J.s/m6"^^cdt:ucum ] ;
+    bgf:hasVariableName [ bgf:forVariable "v" ; bgf:cellmlName "v" ] .
+:P_out a bgf:HydraulicPotential ; bgf:hasSymbol "P_out" ;
+    bgf:portType "vessel_port" ; bgf:portVariables "u" ; bgf:portDirection "exit" ; bgf:portOrder 2 ;
+    bgf:hasValue "2000 J/m3"^^cdt:ucum ;
+    bgf:hasVariableName [ bgf:forVariable "u" ; bgf:cellmlName "u_out" ] , [ bgf:forVariable "v" ; bgf:cellmlName "v_P" ] .
+
+:b1 bgf:hasSource :Sf_in ; bgf:hasTarget :A .
+:b2 bgf:hasSource :A ; bgf:hasTarget :R_w .
+:b3 bgf:hasSource :R_w ; bgf:hasTarget :C_v .
+:b4 bgf:hasSource :A ; bgf:hasTarget :I_v .
+:b5 bgf:hasSource :I_v ; bgf:hasTarget :P_out .
+
+:C a bgf:Constant ; bgf:hasSymbol "C" ; bgf:hasValue "1e-06 m6/J"^^cdt:ucum .
+:tau_v a bgf:Constant ; bgf:hasSymbol "tau_v" ; bgf:hasValue "0.01 s"^^cdt:ucum .
+:G_v a bgf:Ratio ; bgf:hasSymbol "G_v" .
+:flow_out a bgf:SignalOutputPort ; bgf:hasSymbol "flow_out" ; bgf:portType "flow_port" ; bgf:portVariables "u" .
+:volume_out a bgf:SignalOutputPort ; bgf:hasSymbol "volume_out" ; bgf:portType "volume_port" ;
+    bgf:portVariables "u" ; bgf:multiPort "False" .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :C ; bgf:hasTarget :G_v ; bgf:signalInput "u_1" .
+:s2 a bgf:SignalBond ; bgf:hasSource :tau_v ; bgf:hasTarget :G_v ; bgf:signalInput "u_2" .
+:s3 a bgf:SignalBond ; bgf:hasSource :G_v ; bgf:hasTarget :R_w ; bgf:signalInput "k" .
+:s4 a bgf:SignalBond ; bgf:hasSource :C ; bgf:hasTarget :C_v ; bgf:signalInput "C" .
+:s5 a bgf:SignalBond ; bgf:hasSource :I_v ; bgf:hasTarget :flow_out ; bgf:signalVariable "v" .
+:s6 a bgf:SignalBond ; bgf:hasSource :C_v ; bgf:hasTarget :volume_out ; bgf:signalVariable "q" .
