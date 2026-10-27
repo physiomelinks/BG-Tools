@@ -33,6 +33,16 @@ from .mathml import Equation
 class CausalityError(Exception):
     pass
 
+def _with_variable(rhs, expression, variable):
+    """``rhs`` with the terms of ``expression`` (either sign) written as ``variable``, where it has them all."""
+    terms = sympy.expand(rhs)
+    for sign in (1, -1):
+        rest = sympy.expand(terms - sign*expression)
+        if sympy.count_ops(rest) < sympy.count_ops(terms) and not (rest.free_symbols & expression.free_symbols
+                                                                    - terms.free_symbols):
+            return rest + sign*variable
+    return rhs
+
 def assign_causality(equations: list[Equation], known: set[str]) -> list[Equation]:
     """The equations, each solved for the variable it computes. ``known``: the names of variables no equation
     computes (parameters, states, time). Equations are returned unchanged when every variable has one equation."""
@@ -90,12 +100,22 @@ def assign_causality(equations: list[Equation], known: set[str]) -> list[Equatio
         if not augment(n, {n}):
             raise CausalityError(f'No variable left for {equations[n].lhs} = {equations[n].rhs}')
 
+    # another equation's right-hand side within the one to solve is its variable (e.g. a compliance's pressure
+    # within a node's), so the solution reads u_node = u_R + u_C rather than repeating, and rearranging, u_C's law
+    defined = [(equations[k].lhs, equations[k].rhs) for k in algebraic
+               if match.get(k) == equations[k].lhs and isinstance(equations[k].rhs, (sympy.Add, sympy.Mul))]
     result = list(equations)
     for n, symbol in match.items():
         eq = equations[n]
         if symbol == eq.lhs:
             continue
-        solutions = sympy.solve(sympy.Eq(eq.lhs, eq.rhs), symbol, dict=False)
+        rhs = eq.rhs
+        for lhs, expression in defined:
+            if lhs not in (symbol, eq.lhs) and symbol not in expression.free_symbols:
+                rhs = _with_variable(rhs, expression, lhs)
+        solutions = sympy.solve(sympy.Eq(eq.lhs, rhs), symbol, dict=False)
+        if len(solutions) != 1 and rhs != eq.rhs:
+            solutions = sympy.solve(sympy.Eq(eq.lhs, eq.rhs), symbol, dict=False)
         if len(solutions) != 1:
             raise CausalityError(f'Cannot solve {eq.lhs} = {eq.rhs} for {symbol}')
         result[n] = Equation(symbol, solutions[0], eq.provenance)

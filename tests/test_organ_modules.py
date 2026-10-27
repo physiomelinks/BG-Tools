@@ -171,6 +171,12 @@ def test_a_junction_balance_written_for_a_state_is_solved_for_the_wall_flow():
     assert values['u_A'] == pytest.approx((1.3e-03 - 1e-03)/1e-06 + v_wall/G)
     assert rates['q'] == pytest.approx(v_wall)
     assert rates['v'] == pytest.approx((values['u_A'] - 2000 - 1e6*1e-04)/0.01)
+    # the node's pressure is written with the compliance's, not by rearranging its law
+    root = etree.fromstring(cellml_from_bgrdf(MODELS / 'vein_wall.ttl').encode())
+    M = '{http://www.w3.org/1998/Math/MathML}'
+    (u_A,) = [a for a in root.iter(f'{M}apply') if len(a) == 3 and a[0].tag == f'{M}eq'
+              and a[1].tag == f'{M}ci' and a[1].text.strip() == 'u_A']
+    assert sorted(ci.text.strip() for ci in u_A[2].iter(f'{M}ci')) == ['u_C', 'u_R']
 
 
 def test_a_signal_output_port_of_its_input_shares_a_variable(tmp_path):
