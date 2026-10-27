@@ -144,3 +144,27 @@ def test_a_one_way_pump_and_fluxes_set_by_signals():
     RT = 2577.0
     du = RT*0.001*0.217157/1.06921 - RT*0.001444/0.289
     assert values['v_gi_W'] == pytest.approx(max(0.00023925*du, 0))
+
+
+def test_a_librarys_units_files_name_the_units(tmp_path):
+    '''Without a reference version, a library's units file still names the units whose definitions agree.'''
+    units = tmp_path / 'library_units.cellml'
+    units.write_text(f'<model xmlns="{CELLML[1:-1]}" name="Units">'
+                     '<units name="J_per_m3"><unit units="joule"/><unit units="metre" exponent="-3"/></units>'
+                     '<units name="m3_per_s"><unit units="metre" exponent="3"/><unit units="second" exponent="-1"/></units>'
+                     '</model>')
+    import asyncio
+    from bg2cellml.bondgraph.framework import get_framework
+    from bg2cellml.module_export import export_module
+    async def convert():
+        framework = await get_framework()
+        source = MODELS / 'flow_fed_node.ttl'
+        model = framework.make_bondgraph_model(source.resolve().as_uri(), source.read_text())
+        cellml = model.make_cellml_model().to_xml()
+        export_module(model, cellml, tmp_path / 'out', 'vessel', 'bondgraph_v01', units_files=[units],
+                      component_type='vessel_type')
+    asyncio.run(convert())
+    (entry,) = json.loads((tmp_path / 'out' / 'vessel_bondgraph_v01_modules_config.json').read_text())
+    kinds = {name: u for name, u, _, _ in entry['variables_and_units']}
+    assert kinds['u_node'] == 'J_per_m3' and kinds['v_in'] == 'm3_per_s'
+    assert entry['component_type'] == 'vessel_type' and entry['notes'].startswith('Exported by bg2cellml')

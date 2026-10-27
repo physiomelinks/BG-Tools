@@ -306,7 +306,7 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
                   source: str='bond graph', citations: list[str]|None=None, bib: str|None=None,
                   licence: str|None=None, creator: list[str]|None=None,
                   variable_mapping_file: bool=False, reference: str|Path|None=None,
-                  warn=None) -> list[Path]:
+                  warn=None, units_files: list[str|Path]|None=None) -> list[Path]:
     """
     Write the module version of ``model`` (a BondgraphModel) and its CellML (from ``make_cellml_model()``)
     into ``out_dir``; returns the files written. ``source`` names the bond graph in each parameter's
@@ -315,13 +315,14 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
     ``variable_mapping_file`` also writes ``<type>_<subtype>_variable_mapping.csv`` (a module library such as
     circulatory-autogen-modules keeps no such file in a version). ``reference``: an existing version's directory
     whose form the export keeps (see the module's description); ``warn(message)`` is told of parameter values that
-    differ from it.
+    differ from it and of its parameters the bond graph lacks. ``units_files``: a library's units files (CellML), whose
+    names a variable's units take where their definitions agree (after the reference's own).
     """
     for name, what in ((module_type, 'module_type'), (module_subtype, 'module_subtype')):
         if not name or NAME_PATTERN.search(name):
             raise ModuleExportError(f'{what} {name!r} must be letters, digits and _ only')
     prefix = f'{module_type}_{module_subtype}'
-    ref = ReferenceVersion(reference, prefix) if reference is not None else None
+    ref = ReferenceVersion(reference, prefix, units_files) if reference is not None or units_files else None
     if ref is not None:
         component_type = component_type or ref.config.get('component_type')
         licence = licence or ref.config.get('licence')
@@ -668,7 +669,7 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
         'variables_and_units': variables_and_units,
         'notes': f'Exported by bg2cellml from {source}.'
     }]
-    if ref is not None:
+    if ref is not None and ref.config:
         # the reference's other keys (e.g. required_citations_uncertain), in its order
         merged = {key: config[0].get(key, value) for key, value in ref.config.items()}
         merged.update({key: value for key, value in config[0].items() if key not in merged})
@@ -729,9 +730,11 @@ def export_module(model, cellml: str, out_dir: str|Path, module_type: str, modul
 class ReferenceVersion:
     """An existing version of a module, whose form an export keeps: names of units, parameter metadata, config
     keys, references, tests.yaml, verification_config.json and order."""
-    def __init__(self, directory: str|Path, prefix: str):
-        d = Path(directory)
+    def __init__(self, directory: str|Path|None, prefix: str, units_files: list[str|Path]|None=None):
+        d = Path(directory) if directory is not None else None
         def text(suffix: str) -> str|None:
+            if d is None:
+                return None
             path = d / f'{prefix}{suffix}'
             return path.read_text() if path.exists() else None
         config = text('_modules_config.json')
@@ -740,17 +743,19 @@ class ReferenceVersion:
         self.tests = text('_tests.yaml')
         self.verification = text('_verification_config.json')
         name = self.config.get('default_parameterisation', 'default')
-        path = d / 'parameterisations' / name / f'{name}_parameters.json'
+        path = d / 'parameterisations' / name / f'{name}_parameters.json' if d is not None else None
         self.parameters: dict = {}
-        if path.exists():
+        if path is not None and path.exists():
             self.parameters = {k: v for k, v in json.loads(path.read_text()).items()
                                if k != 'schema_version' and isinstance(v, dict) and 'value' in v}
         self.units_of = {row[0]: row[1] for row in self.config.get('variables_and_units', [])}
         self.__units: dict[str, etree._Element] = {}
-        units_text = text('_units.cellml')
-        if units_text:
-            for units in etree.fromstring(units_text.encode()).iter(C('units')):
-                self.__units[units.get('name')] = units
+        units_texts = [text('_units.cellml')] + [Path(f).read_text() for f in units_files or []]
+        for units_text in units_texts:
+            if units_text:
+                for units in etree.fromstring(units_text.encode()).iter(C('units')):
+                    # the version's own definition of a name first, then the library's files' in order
+                    self.__units.setdefault(units.get('name'), units)
 
     def rename_units(self, component: etree._Element, variables_and_units: list, rows: list):
         """Name each variable's units as the reference does (its own name for the variable, else the one
@@ -762,7 +767,7 @@ class ReferenceVersion:
             wanted = self.units_of.get(name)
             if wanted is None or wanted == units:
                 matches = [n for n in self.__units if _same_units(self, n, definitions, units)]
-                wanted = matches[0] if len(matches) == 1 and units not in self.__units else None
+                wanted = matches[0] if matches and units not in self.__units else None
             if wanted is not None and wanted != units and _same_units(self, wanted, definitions, units):
                 variable.set('units', wanted)
                 renamed[name] = wanted
@@ -812,7 +817,9 @@ class ReferenceVersion:
             ports.sort(key=lambda p: known.index(p['port_type']) if p['port_type'] in known else len(known))
 
     def value_differences(self, rows: list) -> list[str]:
-        messages = []
+        exported = {row[0] for row in rows}
+        messages = [f'{name}: a parameter of the reference that the bond graph does not have (a Constant block keeps '
+                    f'one no equation uses)' for name in self.parameters if name not in exported]
         for name, _, value, _ in rows:
             if name in self.parameters:
                 old = self.parameters[name].get('value')

@@ -229,6 +229,8 @@ def main():
     parser.add_argument('--licence', help="With --module: the version's licence (an SPDX id; default the --reference's, else CC0-1.0)")
     parser.add_argument('--creator', metavar='NAME', action='append', help="With --module: a creator's name (repeat for more)")
     parser.add_argument('--reference', metavar='VERSION_DIR', help="With --module: an existing version of the module (often OUTPUT_DIR itself) whose names of units, parameter metadata (data_reference, sourced), other config keys, licence, creators, citations, references, tests.yaml, verification_config.json and order the export keeps")
+    parser.add_argument('--units', metavar='UNITS_FILE', action='append', help="With --module: a library's units file (CellML) whose units names the export uses where their definitions agree, so libcuflynx sees one definition of each name (repeat for more)")
+    parser.add_argument('--component-type', metavar='NAME', help="With --module: the CellML component's name (default: the --reference's, else TYPE)")
     parser.add_argument('source', metavar='CELLDL', help='Input file')
 
     args = parser.parse_args()
@@ -241,7 +243,8 @@ def main():
         print(f'bg2cellml version {__version__}')
     module_options = {'citations': args.citation, 'licence': args.licence, 'creator': args.creator,
                       'bib': Path(args.bib).read_text() if args.bib else None,
-                      'reference': args.reference, 'warn': log.warning}
+                      'reference': args.reference, 'warn': log.warning, 'units_files': args.units,
+                      'component_type': args.component_type}
     asyncio.run(bg2cellml(args.source, args.output, omex=args.omex, bgrdf=args.bgrdf,
         annotate=args.annotate, save_if_errors=args.save_errors, debug=args.debug, module=args.module,
         list_variables=args.list_variables, variable_mapping_file=args.variable_mapping,

@@ -57,7 +57,11 @@ uses (RT in a hydraulic model) are left out. See `bg2cellml/module_export.py`.
 variable's units named as there (where the definitions agree), its parameters' `data_reference`, `sourced` and other
 keys (with the bond graph's values; a different value is reported), its config's other keys (e.g.
 `required_citations_uncertain`), licence, creators, citations and references, its `tests.yaml` and
-`verification_config.json`, and its order of variables, parameters and ports.
+`verification_config.json`, and its order of variables, parameters and ports; a parameter of the version the bond
+graph lacks is reported (a `Constant` block keeps a parameter no equation uses). `--units UNITS_FILE` (repeatable)
+names units as a library's units files do where the definitions agree, so libcuflynx sees one definition of each name;
+`--component-type` names the CellML component. A parameter can modulate another through a `Constant` block (a
+signal) with `bgf:modulates`.
 `tests/test_module_export.py` builds each example module with libcuflynx and runs it against bg2cellml's own
 CellML when `LIBCUFLYNX_SRC` (circulatory_autogen's `src/`) and `LIBCUFLYNX_PYTHON` (a Python with its
 dependencies) are set.
