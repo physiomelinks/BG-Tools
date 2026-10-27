@@ -193,6 +193,30 @@ class MathML:
             self.__variables[element.text].append(element)
         self.__build_equations()
 
+    def rectify(self, name: str) -> bool:
+    #====================================
+        """Make the equation for ``name`` give max(its value, 0); returns whether there is one."""
+        found = False
+        for apply in self.__mathml.findall(MATHML_NS.apply):
+            children = apply.getchildren()
+            if (len(children) == 3 and children[0].tag == MATHML_NS.eq and children[1].tag == MATHML_NS.ci
+            and (children[1].text or '').strip() == name):
+                rhs = children[2]
+                wrapper = etree.Element(MATHML_NS.apply)
+                etree.SubElement(wrapper, MATHML_NS.max)
+                apply.replace(rhs, wrapper)
+                wrapper.append(rhs)
+                zero = etree.SubElement(wrapper, MATHML_NS.cn)
+                zero.text = '0'
+                found = True
+        if found:
+            self.__variables = defaultdict(list)
+            for element in self.__mathml.findall(f'.//{MATHML_NS.ci}'):
+                self.__variables[element.text].append(element)
+            self.__equations = []
+            self.__build_equations()
+        return found
+
     def substitute(self, name: str, symbol: str, missing_ok=False):
     #==============================================================
         if name not in self.__variables:

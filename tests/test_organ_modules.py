@@ -129,3 +129,18 @@ def test_an_entrance_flow_sources_port_has_the_nodes_pressure(tmp_path):
     values, _ = evaluate(with_parameters(tmp_path, 'vessel'))
     assert values['u_in'] == pytest.approx(values['u_node'])
     assert 'RT' not in parameters(tmp_path)           # a constant no equation uses is left out
+
+#===============================================================================
+# The gut of BVC-RAAS5: a one-way pump and fluxes that laws of signal blocks set
+
+def test_a_one_way_pump_and_fluxes_set_by_signals():
+    values, rates = evaluate(cellml_from_bgrdf(MODELS / 'gut_organ_v01.ttl'))
+    # Na into the epithelium at kK (q_gi - q_giEpi), not below 0, through a flux the law sets
+    assert values['v_gi_Na'] == pytest.approx(max(0.003*(0.001444 - 0.0015), 0))
+    # the pump runs backwards at these concentrations, so the one-way pump passes nothing
+    assert values['v_giEpi_NKE'] == 0.0
+    assert rates['q_giEpi_Na'] == pytest.approx(values['v_gi_Na'] - values['v_giEpi_NKE'])
+    # water out by the osmotic difference, one way
+    RT = 2577.0
+    du = RT*0.001*0.217157/1.06921 - RT*0.001444/0.289
+    assert values['v_gi_W'] == pytest.approx(max(0.00023925*du, 0))

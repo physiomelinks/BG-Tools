@@ -128,6 +128,12 @@ ELEMENT_PARAMETER_VALUES = """
         OPTIONAL { ?variable bgf:hasSymbol ?symbol }
     }"""
 
+ELEMENT_ONE_WAY = """
+    SELECT DISTINCT ?oneWay
+    WHERE {
+        <%ELEMENT%> bgf:oneWay ?oneWay .
+    }"""
+
 ELEMENT_STATE_VALUE = """
     SELECT DISTINCT ?value
     WHERE {
@@ -307,9 +313,20 @@ class BondgraphElement(ModelElement):
                 else:
                     value = Value.from_literal(row['value'])          # pyright: ignore[reportArgumentType]
                 break
-        return cls(model, uri.value, template, domain_uri=domain_uri,
-                    parameter_values=parameter_values, variable_values=variable_values,
-                    value=value, symbol=symbol, label=label)
+        element = cls(model, uri.value, template, domain_uri=domain_uri,
+                      parameter_values=parameter_values, variable_values=variable_values,
+                      value=value, symbol=symbol, label=label)
+        for row in model.sparql_query(ELEMENT_ONE_WAY.replace('%ELEMENT%', uri.value)):
+            if str(row['oneWay'].value).lower() in ('true', '1'):                   # pyright: ignore[reportOptionalMemberAccess]
+                element.make_one_way()
+        return element
+
+    def make_one_way(self):
+    #======================
+        """Pass flow only forwards: the constitutive relation's flow becomes max(v, 0)."""
+        if (self.__element_class not in [RESISTANCE, REACTION] or self.__constitutive_relation is None
+         or not self.__constitutive_relation.rectify(self.__domain.flow.symbol)):
+            self.report_issue(f'Element {self.pretty_name} has no flow law to make one way')
 
     @property
     def constitutive_relation(self) -> MathML|None:
