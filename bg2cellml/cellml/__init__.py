@@ -385,6 +385,16 @@ class CellMLModel:
                 return []
             elements = []
             elements.append(f'<units xmlns="{CELLML_NS}" name="{units.name}">')
+            if (definition := units.si_definition()) is not None:
+                # a prefixed or non-SI unit: a multiplier on SI base units
+                multiplier, items = definition
+                for n, (name, exponent) in enumerate(items):
+                    scale = f' multiplier="{multiplier:.15g}"' if n == 0 and multiplier != 1 else ''
+                    power = f' exponent="{exponent}"' if exponent != 1 else ''
+                    elements.append(f'<unit units="{name}"{power}{scale}/>')
+                elements.append('</units>')
+                self.__known_units.add(units.name)
+                return elements
             for item in units.base_items():
                 if item[0] not in self.__known_units:
                     item_elements = elements_from_units(Units(item[0]))

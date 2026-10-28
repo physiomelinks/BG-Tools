@@ -173,5 +173,30 @@ def test_a_parameter_in_other_units_is_converted_to_its_signals():
     assert values['u_f'] == pytest.approx(0.5)
     assert rates['u_f'] == pytest.approx((1.0 - 0.5)/2)
 
+def test_prefixed_and_non_si_units_are_multipliers_of_si_base_units():
+    '''A gain to ng/mL/h (a plasma renin activity) of a rate per litre: nanogram, millilitre and hour, which are not
+    CellML units, are defined as multipliers of kilogram, metre and second.'''
+    from lxml import etree
+    model, found = issues(PREFIXES + '''
+        :m a bgf:BondgraphModel ; bgf:hasSignalBlock :r, :PRA .
+        :r a bgf:Constant ; bgf:hasSymbol "r" ; bgf:hasValue "2e-13 mol/L/s"^^cdt:ucum .
+        :PRA a bgf:Gain ; bgf:hasSymbol "PRA" ;
+            bgf:parameterValue [ bgf:varName "k" ; bgf:hasSymbol "k_PRA" ;
+                                 bgf:hasValue "4.6674e12 ng.L.s.mL-1.h-1.mol-1"^^cdt:ucum ] .
+        :s a bgf:SignalBond ; bgf:hasSource :r ; bgf:hasTarget :PRA .''')
+    assert found == []
+    cellml = model.make_cellml_model().to_xml()
+    root = etree.fromstring(cellml.encode())
+    C = '{http://www.cellml.org/cellml/1.1#}'
+    units = {u.get('name'): [dict(item.attrib) for item in u.iter(f'{C}unit')] for u in root.iter(f'{C}units')}
+    assert units['nanogram'] == [{'units': 'kilogram', 'multiplier': '1e-12'}]
+    assert units['millilitre'] == [{'units': 'metre', 'exponent': '3', 'multiplier': '1e-06'}]
+    assert units['hour'] == [{'units': 'second', 'multiplier': '3600'}]
+    assert {u['units'] for u in units['nanogram_per_hour_per_millilitre']} == {'nanogram', 'hour', 'millilitre'}
+    PRA = next(v for v in root.iter(f'{C}variable') if v.get('name') == 'PRA')
+    assert PRA.get('units') == 'nanogram_per_hour_per_millilitre'
+    values, _ = evaluate(cellml)
+    assert values['PRA'] == pytest.approx(4.6674e12*2e-13)
+
 #===============================================================================
 #===============================================================================

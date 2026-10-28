@@ -102,6 +102,19 @@ class Units:
         ## self.__pint_units.unit_items() and only go to_base_units() if not a known
         ## CELLML_UNIT...
 
+    def si_definition(self) -> tuple[float, list[tuple[str, int]]]|None:
+    #===================================================================
+        """
+        A single unit that is not made of others (a prefixed or non-SI one: nanogram, millilitre, hour) as a
+        multiplier of SI base units, e.g. (1e-12, [('kilogram', 1)]); None for any other units.
+        """
+        items = list(self.base_items())
+        if len(items) != 1 or items[0][1] != 1 or items[0][0] != str(self.__units):
+            return None
+        base = pint.Quantity(1, self.__units).to_base_units()
+        multiplier = float(f'{base.magnitude:.15g}')
+        return (multiplier, [(Units.normalise_name(name), int(exponent)) for name, exponent in base.unit_items()])
+
     def times(self, other: 'Units') -> 'Units':
     #==========================================
         return Units(self.__units * other.__units)
