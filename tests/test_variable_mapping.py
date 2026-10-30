@@ -78,7 +78,8 @@ def test_the_mapping_sits_beside_its_cellml_as_libcuflynx_looks_for_it():
 
 def test_a_module_export_writes_its_mapping(tmp_path):
     model, cellml = converted('chemostat_product')
-    files = export_module(model, cellml, tmp_path, 'bgmod', 'bondgraph_v01', source='chemostat_product.ttl')
+    files = export_module(model, cellml, tmp_path, 'bgmod', 'bondgraph_v01', source='chemostat_product.ttl',
+                          variable_mapping_file=True)
     path = tmp_path / 'bgmod_bondgraph_v01_variable_mapping.csv'
     assert path in files
     header, rows = read(path)

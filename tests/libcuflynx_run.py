@@ -26,10 +26,10 @@ os.makedirs(resources, exist_ok=True)
 prefix = 'bgcheck'
 with open(os.path.join(resources, f'{prefix}_module_array.json'), 'w') as f:
     json.dump([{'name': 'bg', 'module_type': module_type, 'module_subtype': subtype}], f)
-with open(os.path.join(resources, f'{prefix}_parameters.csv'), 'w') as f:
-    f.write('variable_name,units,value,data_reference\n')
+with open(os.path.join(resources, f'{prefix}_parameters.json'), 'w') as f:
+    json.dump({'schema_version': 1}, f)
 config = {
-    'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv', 'model_type': 'cellml',
+    'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.json', 'model_type': 'cellml',
     'solver': 'CVODE_myokit', 'resources_dir': resources,
     'generated_models_dir': os.path.join(work, 'generated_models'),
     'module_library_dirs': [module_dir], 'use_builtin_modules': False, 'DEBUG': False,

@@ -1,0 +1,106 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# Kedem-Katchalsky water and Na transport from a tubule lumen into an epithelial cell, as a pair of elements: the
+# water flux Jv = Lp ((u_lumen - u_cell) - sigma (Pi_lumen - Pi_cell)), with the osmotic pressures from blocks of
+# each side's Na and water, and the Na flux Js = omega (c_lumen - c_cell) + (1 - sigma) (c_lumen + c_cell)/2 Jv,
+# with the concentrations from blocks and Jv the water flux's flow. The cell's Na also leaves with a water flow
+# (convection) to the blood.
+
+:kedem_katchalsky
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:chemical.ttl, tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:hasBondElement :W_lumen, :Jw, :W_cell, :Na_lumen, :Js, :Na_cell, :Jc, :Se_blood ;
+    bgf:hasSignalBlock :Pi_lumen, :Pi_cell, :c_lumen, :c_cell ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5, :s6, :s7, :s8, :s9, :s10, :s11, :s12, :s13, :s14, :s15 .
+
+:W_lumen
+    a bgf:HydraulicComplianceNode ;
+    bgf:hasValue "0.1 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.01 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.08 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
+
+:Jw
+    a bgf:KedemKatchalskyWaterFluxNode ;
+    bgf:hasSymbol "Jv" ;
+    bgf:parameterValue [ bgf:varName "Lp" ; bgf:hasValue "1e-4 L2.s-1.J-1"^^cdt:ucum ] ,
+                       [ bgf:varName "sigma" ; bgf:hasValue "0.9 1"^^cdt:ucum ] .
+
+:W_cell
+    a bgf:HydraulicComplianceNode ;
+    bgf:hasValue "0.05 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.005 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.045 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
+
+:Na_lumen
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "Na" ; bgf:hasLocation "lumen" ;
+    bgf:hasValue "0.014 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "10 mol-1"^^cdt:ucum ] .
+
+:Js
+    a bgf:KedemKatchalskySoluteFluxNode ;
+    bgf:parameterValue [ bgf:varName "omega" ; bgf:hasValue "1e-3 L/s"^^cdt:ucum ] ,
+                       [ bgf:varName "sigma" ; bgf:hasValue "0.9 1"^^cdt:ucum ] .
+
+:Na_cell
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "Na" ; bgf:hasLocation "cell" ;
+    bgf:hasValue "0.0006 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "20 mol-1"^^cdt:ucum ] .
+
+:Jc
+    a bgf:ConvectiveSoluteFluxNode .
+
+:Se_blood
+    a bgf:ChemicalPotential ;
+    bgf:hasSymbol "Se" ; bgf:hasSpecies "Na" ; bgf:hasLocation "blood" ;
+    bgf:hasValue "0 J/mol"^^cdt:ucum .
+
+:b1 bgf:hasSource :W_lumen ; bgf:hasTarget :Jw .
+:b2 bgf:hasSource :Jw ; bgf:hasTarget :W_cell .
+:b3 bgf:hasSource :Na_lumen ; bgf:hasTarget :Js .
+:b4 bgf:hasSource :Js ; bgf:hasTarget :Na_cell .
+:b5 bgf:hasSource :Na_cell ; bgf:hasTarget :Jc .
+:b6 bgf:hasSource :Jc ; bgf:hasTarget :Se_blood .
+
+# Signals
+
+:Pi_lumen
+    a bgf:OsmoticPressure ;
+    bgf:hasSymbol "Pi_lumen" ;
+    bgf:parameterValue [ bgf:varName "phi" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+
+:Pi_cell
+    a bgf:OsmoticPressure ;
+    bgf:hasSymbol "Pi_cell" ;
+    bgf:parameterValue [ bgf:varName "phi" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+
+:c_lumen
+    a bgf:Concentration ;
+    bgf:hasSymbol "c_Na_lumen" .
+
+:c_cell
+    a bgf:Concentration ;
+    bgf:hasSymbol "c_Na_cell" .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :Na_lumen ; bgf:hasTarget :Pi_lumen ; bgf:signalInput "q_s" .
+:s2 a bgf:SignalBond ; bgf:hasSource :W_lumen ; bgf:hasTarget :Pi_lumen ; bgf:signalInput "q_w" .
+:s3 a bgf:SignalBond ; bgf:hasSource :Na_cell ; bgf:hasTarget :Pi_cell ; bgf:signalInput "q_s" .
+:s4 a bgf:SignalBond ; bgf:hasSource :W_cell ; bgf:hasTarget :Pi_cell ; bgf:signalInput "q_w" .
+:s5 a bgf:SignalBond ; bgf:hasSource :Na_lumen ; bgf:hasTarget :c_lumen ; bgf:signalInput "q_s" .
+:s6 a bgf:SignalBond ; bgf:hasSource :W_lumen ; bgf:hasTarget :c_lumen ; bgf:signalInput "q_w" .
+:s7 a bgf:SignalBond ; bgf:hasSource :Na_cell ; bgf:hasTarget :c_cell ; bgf:signalInput "q_s" .
+:s8 a bgf:SignalBond ; bgf:hasSource :W_cell ; bgf:hasTarget :c_cell ; bgf:signalInput "q_w" .
+:s9 a bgf:SignalBond ; bgf:hasSource :Pi_lumen ; bgf:hasTarget :Jw ; bgf:signalInput "Pi_in" .
+:s10 a bgf:SignalBond ; bgf:hasSource :Pi_cell ; bgf:hasTarget :Jw ; bgf:signalInput "Pi_out" .
+:s11 a bgf:SignalBond ; bgf:hasSource :c_lumen ; bgf:hasTarget :Js ; bgf:signalInput "c_in" .
+:s12 a bgf:SignalBond ; bgf:hasSource :c_cell ; bgf:hasTarget :Js ; bgf:signalInput "c_out" .
+:s13 a bgf:SignalBond ; bgf:hasSource :Jw ; bgf:hasTarget :Js ; bgf:signalInput "Jv" .
+:s14 a bgf:SignalBond ; bgf:hasSource :c_cell ; bgf:hasTarget :Jc ; bgf:signalInput "c" .
+:s15 a bgf:SignalBond ; bgf:hasSource :Jw ; bgf:hasTarget :Jc ; bgf:signalInput "Jv" .

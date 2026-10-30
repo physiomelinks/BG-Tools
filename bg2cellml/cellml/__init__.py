@@ -33,6 +33,7 @@ import sympy
 #===============================================================================
 
 from ..annotations import model_annotations, ModelAnnotations
+from ..causality import assign_causality, CausalityError
 from ..bondgraph.framework_support import QUANTITY_STORE, Variable, VOI_VARIABLE
 from ..bondgraph.model_support import BondgraphElement, BondgraphJunction
 from ..bondgraph.utils import clean_name, ModelElement
@@ -125,14 +126,8 @@ CELLML_UNITS = [
 
 #===============================================================================
 
-DIMENSIONLESS_UNITS_NAME = 'dim'
+DIMENSIONLESS_UNITS_NAME = 'dimensionless'        # built in, so numbers need no units definition
 CELLML_UNITS_ATTRIB = CELLML_NS('units')
-
-DIMENSIONLESS_UNIT_DEFINITION = [
-    f'<units name="{DIMENSIONLESS_UNITS_NAME}">',
-    '<unit units="dimensionless"/>',
-    '</units>'
-]
 
 #===============================================================================
 
@@ -187,6 +182,10 @@ class CellMLVariable:
         self.__units = variable.units.name
         if variable.value is not None:
             self.__initial_value = variable.value.value
+            value_units = variable.value.units
+            if (value_units is not None and variable.units_known and value_units != variable.units
+            and not value_units.is_dimensionless() and value_units.is_compatible_with(variable.units)):
+                self.__initial_value = float(f'{value_units.convert(variable.value.value, variable.units):.15g}')
         else:
             self.__initial_value = None
 
@@ -235,11 +234,16 @@ class CellMLModel:
         self.__metadata = RdfGraph()
         self.__metadata.add(Triple(namedNode(CELLML_MODEL_URI), BQMODEL.isDescribedBy, model.uri))
 
-        self.__add_unit_xml(DIMENSIONLESS_UNIT_DEFINITION)  ## Only if <cn> in MathML??
         self.__add_fixed(VOI_VARIABLE)       # only if VOI in some element's CR??
 
         for element in model.elements:
             self.__add_element(element)
+        for block in model.signal_blocks:
+            for constant in block.domain.constants:
+                self.__add_fixed(constant)
+            for variable in block.variables.values():
+                if variable.units_known:
+                    self.__add_variable(variable, block)
         for junction in model.junctions:
             self.__add_junction_variables(junction)
         self.__output_variable_definitions()
@@ -263,6 +267,8 @@ class CellMLModel:
     def __add_fixed(self, variable: Variable):
     #===========================================
         if variable.symbol not in self.__known_fixed:
+            # a domain constant the model gives its own value
+            variable = self.__model.constant_values.get(variable.symbol, variable)
             self.__add_units(variable.units)
             cellml_variable = CellMLVariable(self.__current_component, variable)
             self.__current_component.add_variable(cellml_variable)
@@ -379,6 +385,16 @@ class CellMLModel:
                 return []
             elements = []
             elements.append(f'<units xmlns="{CELLML_NS}" name="{units.name}">')
+            if (definition := units.si_definition()) is not None:
+                # a prefixed or non-SI unit: a multiplier on SI base units
+                multiplier, items = definition
+                for n, (name, exponent) in enumerate(items):
+                    scale = f' multiplier="{multiplier:.15g}"' if n == 0 and multiplier != 1 else ''
+                    power = f' exponent="{exponent}"' if exponent != 1 else ''
+                    elements.append(f'<unit units="{name}"{power}{scale}/>')
+                elements.append('</units>')
+                self.__known_units.add(units.name)
+                return elements
             for item in units.base_items():
                 if item[0] not in self.__known_units:
                     item_elements = elements_from_units(Units(item[0]))
@@ -402,6 +418,14 @@ class CellMLModel:
     def __equations_to_mathml(self):
     #===============================
         equations = self.__model.equations
+        # where the bond graph's causality differs from the equations' left-hand sides, solve them for it
+        known = {symbol for symbol, (variable, _) in self.__known_variables.items() if variable.value is not None}
+        known |= self.__known_fixed
+        known |= {str(eq.lhs.expr) for eq in equations if isinstance(eq.lhs, sympy.Derivative)}
+        try:
+            equations = assign_causality(equations, known)
+        except CausalityError as error:
+            self.__model.report_issue(f'Causality: {error}')
         element_odes: list[Equation] = []
         element_algebraics: list[Equation] = []
         junction_algebraics: list[Equation] = []

@@ -22,6 +22,8 @@ from typing import Self
 
 #===============================================================================
 
+import re
+
 import pint
 from pint import Quantity
 from ucumvert import PintUcumRegistry
@@ -73,7 +75,10 @@ class Units:
         name = (name.replace(' * ', '_')
                     .replace(' / ', '_per_')
                     .replace(' ** 2', '_squared')
+                    .replace(' ** 3', '_cubed')
                     .replace('1_per_', 'per_'))
+        # any other power, e.g. second ** -1.5 -> second_pow_m1_5
+        name = re.sub(r' \*\* (-?)([0-9.]+)', lambda m: f'_pow_{"m" if m[1] else ""}{m[2].replace(".", "_")}', name)
         for fullname, replacement in SUBSTITUTIONS.items():
             name = name.replace(fullname, replacement)
         return name
@@ -97,9 +102,45 @@ class Units:
         ## self.__pint_units.unit_items() and only go to_base_units() if not a known
         ## CELLML_UNIT...
 
+    def si_definition(self) -> tuple[float, list[tuple[str, int]]]|None:
+    #===================================================================
+        """
+        A single unit that is not made of others (a prefixed or non-SI one: nanogram, millilitre, hour) as a
+        multiplier of SI base units, e.g. (1e-12, [('kilogram', 1)]); None for any other units.
+        """
+        items = list(self.base_items())
+        if len(items) != 1 or items[0][1] != 1 or items[0][0] != str(self.__units):
+            return None
+        base = pint.Quantity(1, self.__units).to_base_units()
+        multiplier = float(f'{base.magnitude:.15g}')
+        return (multiplier, [(Units.normalise_name(name), int(exponent)) for name, exponent in base.unit_items()])
+
+    def times(self, other: 'Units') -> 'Units':
+    #==========================================
+        return Units(self.__units * other.__units)
+
+    def over(self, other: 'Units') -> 'Units':
+    #=========================================
+        return Units(self.__units / other.__units)
+
     def is_compatible_with(self, other: Self):
     #=========================================
         return self.__units.is_compatible_with(other.__units)
+
+    def is_dimensionless(self) -> bool:
+    #==================================
+        return bool(self.__units.dimensionless)
+
+    def convert(self, value: float, other: 'Units') -> float:
+    #=========================================================
+        return float(pint.Quantity(value, self.__units).to(other.__units).magnitude)
+
+    def same_scale(self, other: 'Units') -> bool:
+    #=============================================
+        # equal, or compatible with a factor of 1 (kPa and J/L)
+        if self == other:
+            return True
+        return self.is_compatible_with(other) and abs(self.convert(1.0, other) - 1.0) < 1e-12
 
 #===============================================================================
 

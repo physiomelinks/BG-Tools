@@ -1,0 +1,44 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# The baroreceptor: arterial pressure P_sys (from outside the model) lagged to P_baro, mapped by a sigmoid to the
+# afferent firing rate f_ab, which goes outside the model. As a module: an entrance port arterial_pressure_port
+# and an exit port baroreceptor_firing_rate_port.
+
+:baroreceptor
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:signal.ttl ;
+    bgf:hasSignalBlock :P_sys, :P_baro, :f_sig, :f_ab ;
+    bgf:hasSignalBond :s1, :s2, :s3 .
+
+:P_sys
+    a bgf:SignalInputPort ;
+    bgf:hasSymbol "P_sys" ;
+    bgf:portType "arterial_pressure_port" ;
+    bgf:hasValue "13 kPa"^^cdt:ucum .
+
+:P_baro
+    a bgf:FirstOrderLag ;
+    bgf:hasSymbol "P_baro" ;
+    bgf:hasValue "12 kPa"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "tau" ; bgf:hasSymbol "tau_pb" ; bgf:hasValue "2.076 s"^^cdt:ucum ] .
+
+:f_sig
+    a bgf:SigmoidMap ;
+    bgf:hasSymbol "f_sig" ;
+    bgf:parameterValue [ bgf:varName "y_min" ; bgf:hasSymbol "f_ab_min" ; bgf:hasValue "2.52 s-1"^^cdt:ucum ] ,
+                       [ bgf:varName "y_max" ; bgf:hasSymbol "f_ab_max" ; bgf:hasValue "47.78 s-1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_nom" ; bgf:hasSymbol "P_nom" ; bgf:hasValue "12 kPa"^^cdt:ucum ] ,
+                       [ bgf:varName "k" ; bgf:hasSymbol "k_ab" ; bgf:hasValue "1.6 kPa"^^cdt:ucum ] .
+
+:f_ab
+    a bgf:SignalOutputPort ;
+    bgf:hasSymbol "f_ab" ;
+    bgf:portType "baroreceptor_firing_rate_port" .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :P_sys ; bgf:hasTarget :P_baro .
+:s2 a bgf:SignalBond ; bgf:hasSource :P_baro ; bgf:hasTarget :f_sig .
+:s3 a bgf:SignalBond ; bgf:hasSource :f_sig ; bgf:hasTarget :f_ab .

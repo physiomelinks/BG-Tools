@@ -1,0 +1,119 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# A renal vessel whose efferent resistance and peritubular compliance angiotensin II scales: Ang II, a store fed by
+# a flow and cleared, gives ang_scale = 1 + alpha q/(q + u_half) (a SaturatingScale block), which divides the efferent
+# conductance (bgf:modulates "k", exponent -1) and the peritubular compliance (bgf:modulates "C", exponent -1). The
+# glomerular pressure, a 0-junction's potential, is lagged and goes outside the model.
+
+:angII_vessel
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:chemical.ttl, tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:hasBondElement :Sf_ATII, :q_ATII, :Re_clear, :Se_ATII, :P_a, :R_aff, :C_gc, :R_eff, :q_pc, :R_out, :P_v ;
+    bgf:hasJunctionStructure :J_gc ;
+    bgf:hasSignalBlock :ang_scale, :P_gc_f, :P_gc_out ;
+    bgf:hasSignalBond :s1, :s2, :s3, :s4, :s5 .
+
+# Angiotensin II
+
+:Sf_ATII
+    a bgf:ChemicalFlow ;
+    bgf:hasValue "1e-12 mol/s"^^cdt:ucum .
+
+:q_ATII
+    a bgf:ChemicalStorageNode ;
+    bgf:hasSpecies "ATII" ;
+    bgf:hasValue "2e-11 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasValue "1e10 mol-1"^^cdt:ucum ] .
+
+:Re_clear
+    a bgf:ChemicalReactionNode ;
+    bgf:parameterValue [ bgf:varName "kappa" ; bgf:hasValue "3.3e-12 mol/s"^^cdt:ucum ] .
+
+:Se_ATII
+    a bgf:ChemicalPotential ;
+    bgf:hasSymbol "Se" ;
+    bgf:hasSpecies "ATII_cleared" ;
+    bgf:hasValue "-50000 J/mol"^^cdt:ucum .
+
+:b1 bgf:hasSource :Sf_ATII ; bgf:hasTarget :q_ATII .
+:b2 bgf:hasSource :q_ATII ; bgf:hasTarget :Re_clear .
+:b3 bgf:hasSource :Re_clear ; bgf:hasTarget :Se_ATII .
+
+# The vessel
+
+:P_a
+    a bgf:HydraulicPotential ;
+    bgf:hasValue "13 J/L"^^cdt:ucum .
+
+:R_aff
+    a bgf:HydraulicResistanceNode ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "0.4 L2.s-1.J-1"^^cdt:ucum ] .
+
+:J_gc
+    a bgf:ZeroNode ;
+    bgf:hasSymbol "u_gc" .
+
+:C_gc
+    a bgf:HydraulicCompliance ;
+    bgf:hasValue "0.6 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.05 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.1 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
+
+:R_eff
+    a bgf:HydraulicResistanceNode ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "0.3 L2.s-1.J-1"^^cdt:ucum ] .
+
+:q_pc
+    a bgf:HydraulicComplianceNode ;
+    bgf:hasValue "0.4 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.1 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "0.2 L"^^cdt:ucum ] ,
+                       [ bgf:varName "u_ext" ; bgf:hasValue "0 J/L"^^cdt:ucum ] .
+
+:R_out
+    a bgf:HydraulicResistanceNode ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "1 L2.s-1.J-1"^^cdt:ucum ] .
+
+:P_v
+    a bgf:HydraulicPotential ;
+    bgf:hasValue "1 J/L"^^cdt:ucum .
+
+:b4 bgf:hasSource :P_a ; bgf:hasTarget :R_aff .
+:b5 bgf:hasSource :R_aff ; bgf:hasTarget :J_gc .
+:b6 bgf:hasSource :J_gc ; bgf:hasTarget :C_gc .
+:b7 bgf:hasSource :J_gc ; bgf:hasTarget :R_eff .
+:b8 bgf:hasSource :R_eff ; bgf:hasTarget :q_pc .
+:b9 bgf:hasSource :q_pc ; bgf:hasTarget :R_out .
+:b10 bgf:hasSource :R_out ; bgf:hasTarget :P_v .
+
+# Signals
+
+:ang_scale
+    a bgf:SaturatingScale ;
+    bgf:hasSymbol "ang_scale" ;
+    bgf:parameterValue [ bgf:varName "alpha" ; bgf:hasValue "0.5 1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_half" ; bgf:hasSymbol "angII_healthy" ; bgf:hasValue "2e-11 mol"^^cdt:ucum ] .
+
+:P_gc_f
+    a bgf:FirstOrderLag ;
+    bgf:hasSymbol "P_gc_f" ;
+    bgf:hasValue "8 J/L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "tau" ; bgf:hasValue "5 s"^^cdt:ucum ] .
+
+:P_gc_out
+    a bgf:SignalOutputPort ;
+    bgf:hasSymbol "P_gc" ;
+    bgf:portType "glomerular_pressure_port" .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :q_ATII ; bgf:hasTarget :ang_scale .
+:s2 a bgf:SignalBond ; bgf:hasSource :ang_scale ; bgf:hasTarget :R_eff ;
+    bgf:modulates "k" ; bgf:modulationExponent -1 .
+:s3 a bgf:SignalBond ; bgf:hasSource :ang_scale ; bgf:hasTarget :q_pc ;
+    bgf:modulates "C" ; bgf:modulationExponent -1 .
+:s4 a bgf:SignalBond ; bgf:hasSource :J_gc ; bgf:hasTarget :P_gc_f .
+:s5 a bgf:SignalBond ; bgf:hasSource :P_gc_f ; bgf:hasTarget :P_gc_out .

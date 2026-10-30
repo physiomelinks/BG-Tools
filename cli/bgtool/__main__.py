@@ -87,7 +87,8 @@ class OmexMaker:
 
 async def model2cellml(bgrdf_model: BondgraphModel, source_path: Path, output: str|None,
                  omex: str|None=None, bgrdf: bool=False, annotate: bool=False,
-                 save_if_errors: bool=False, module: str|None=None, variable_mapping_file: bool=False):
+                 save_if_errors: bool=False, module: str|None=None, variable_mapping_file: bool=False,
+                 module_options: dict|None=None):
     cellml_model = bgrdf_model.make_cellml_model()
     cellml = cellml_model.to_xml()
     has_issues = not valid_cellml(cellml)
@@ -98,7 +99,8 @@ async def model2cellml(bgrdf_model: BondgraphModel, source_path: Path, output: s
         assert output is not None
         module_type, _, module_subtype = module.partition('/')
         for file in export_module(bgrdf_model, cellml, output, module_type, module_subtype or 'bondgraph',
-                                  source=source_path.name):
+                                  source=source_path.name, variable_mapping_file=variable_mapping_file,
+                                  **(module_options or {})):
             log.info(f'Exported {pretty_log(file)}')
     else:
         source_name = source_path.stem
@@ -170,7 +172,7 @@ async def model2cellml(bgrdf_model: BondgraphModel, source_path: Path, output: s
 async def bg2cellml(source_file: str, output: str|None, omex: str|None=None,
                     annotate: bool=False, bgrdf: bool=False, save_if_errors: bool=False,
                     debug: bool=False, module: str|None=None, list_variables: bool=False,
-                    variable_mapping_file: bool=False):
+                    variable_mapping_file: bool=False, module_options: dict|None=None):
     framework = await get_framework()
     if framework.has_issues:
         for issue in framework.issues:
@@ -205,7 +207,7 @@ async def bg2cellml(source_file: str, output: str|None, omex: str|None=None,
 
     await model2cellml(bgrdf_model, source_path, output, omex=omex, bgrdf=bgrdf,
                         annotate=annotate, save_if_errors=save_if_errors, module=module,
-                        variable_mapping_file=variable_mapping_file)
+                        variable_mapping_file=variable_mapping_file, module_options=module_options)
 
 #===============================================================================
 
@@ -222,6 +224,13 @@ def main():
     parser.add_argument('--list-variables', action='store_true', help="List each element variable: its element, class, template name, bond graph name and CellML name (after the model's naming rules)")
     parser.add_argument('--variable-mapping', action='store_true', help="Also write <name>_variable_mapping.csv beside the CellML: libcuflynx's variable mapping (for cuflynx-methods-latex) with each variable's bond graph name as an extra column")
     parser.add_argument('--module', metavar='TYPE[/SUBTYPE]', help='Write a module version for libcuflynx and PhLynx into OUTPUT_DIR: its CellML, units, modules_config.json and default parameterisation (SUBTYPE defaults to bondgraph)')
+    parser.add_argument('--bib', metavar='BIB_FILE', help="With --module: the version's references (default: a placeholder citing libcuflynx)")
+    parser.add_argument('--citation', metavar='KEY', action='append', help="With --module: a required citation, a key of --bib's (repeat for more; default: all its keys)")
+    parser.add_argument('--licence', help="With --module: the version's licence (an SPDX id; default the --reference's, else CC0-1.0)")
+    parser.add_argument('--creator', metavar='NAME', action='append', help="With --module: a creator's name (repeat for more)")
+    parser.add_argument('--reference', metavar='VERSION_DIR', help="With --module: an existing version of the module (often OUTPUT_DIR itself) whose names of units, parameter metadata (data_reference, sourced), other config keys, licence, creators, citations, references, tests.yaml, verification_config.json and order the export keeps")
+    parser.add_argument('--units', metavar='UNITS_FILE', action='append', help="With --module: a library's units file (CellML) whose units names the export uses where their definitions agree, so libcuflynx sees one definition of each name (repeat for more)")
+    parser.add_argument('--component-type', metavar='NAME', help="With --module: the CellML component's name (default: the --reference's, else TYPE)")
     parser.add_argument('source', metavar='CELLDL', help='Input file')
 
     args = parser.parse_args()
@@ -232,9 +241,14 @@ def main():
 
     if args.debug:
         print(f'bg2cellml version {__version__}')
+    module_options = {'citations': args.citation, 'licence': args.licence, 'creator': args.creator,
+                      'bib': Path(args.bib).read_text() if args.bib else None,
+                      'reference': args.reference, 'warn': log.warning, 'units_files': args.units,
+                      'component_type': args.component_type}
     asyncio.run(bg2cellml(args.source, args.output, omex=args.omex, bgrdf=args.bgrdf,
         annotate=args.annotate, save_if_errors=args.save_errors, debug=args.debug, module=args.module,
-        list_variables=args.list_variables, variable_mapping_file=args.variable_mapping))
+        list_variables=args.list_variables, variable_mapping_file=args.variable_mapping,
+        module_options=module_options))
 
 #===============================================================================
 

@@ -75,7 +75,7 @@ def etree_from_string(xml: str) -> etree.Element:
 
 def string_to_list(string: str) -> list[int]:
 #============================================
-    return [ord(x) for x in string]
+    return list(string.encode('utf-8'))
 
 #===============================================================================
 #===============================================================================

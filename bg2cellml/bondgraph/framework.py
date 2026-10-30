@@ -19,31 +19,44 @@
 #===============================================================================
 
 from pathlib import Path
+import re
 from typing import cast
 
 #===============================================================================
 
-from ..rdf import NamedNode, RdfGraph
+from ..rdf import isLiteral, literal, NamedNode, RdfGraph
 from ..rdf.types import Triple
 
 from ..utils import Issue
 
 from .model import BondgraphModel
-from .namespaces import NAMESPACES
+from .namespaces import BGF, CDT, NAMESPACES
 
 from .framework_support import BondgraphElementTemplate, CompositeTemplate, ElementTemplate
-from .framework_support import Domain, JunctionStructure
+from .framework_support import Domain, JunctionStructure, SignalDomain
 
 #===============================================================================
 
 BGF_ONTOLOGY_URI = 'https://bg-rdf.org/ontologies/bondgraph-framework'
+BGF_SIGNAL_BLOCK = BGF.SignalBlock
 BGF_TEMPLATE_URI_PREFIX = 'https://bg-rdf.org/templates/'
+
+# A model's unit system (bgf:unitSystem): "SI" has the templates' litres in cubic metres and kPa in Pa
+UNIT_SYSTEMS = ('SI',)
+
+def si_ucum_units(units: str) -> str:
+    """UCUM units with litres as cubic metres and kPa as Pa: "J/L" -> "J/m3", "L2.s-1.J-1" -> "m6.s-1.J-1"."""
+    def si(match: re.Match) -> str:
+        power = int(match[2]) if match[2] else 1
+        return f'm{3*power}' if match[1] == 'L' else f'Pa{match[2]}'
+    return re.sub(r'(?<![A-Za-z])(L|kPa)(-?\d*)(?![A-Za-z])', si, units)
 
 _BGF_TEMPLATE_NAMES = [
     'chemical.ttl',
     'electrical.ttl',
     'hydraulic.ttl',
     'mechanical.ttl',
+    'signal.ttl',
 ]
 
 BGF_TEMPLATE_URIS: dict[str, str] = {
@@ -115,6 +128,24 @@ ELEMENT_TEMPLATE_DEFINITIONS = """
         OPTIONAL { ?uri rdfs:label ?label }
     } ORDER BY ?uri"""
 
+SIGNAL_DOMAIN_QUERY = """
+    SELECT DISTINCT ?domain ?label
+    WHERE {
+        ?domain a bgf:SignalDomain .
+        OPTIONAL { ?domain rdfs:label ?label }
+    } ORDER BY ?domain"""
+
+SIGNAL_BLOCK_TEMPLATE_DEFINITIONS = """
+    SELECT DISTINCT ?uri ?label ?domain ?relation
+    WHERE {
+        ?uri
+            a bgf:ElementTemplate ;
+            rdfs:subClassOf bgf:SignalBlock ;
+            bgf:hasDomain ?domain .
+        OPTIONAL { ?uri bgf:constitutiveRelation ?relation }
+        OPTIONAL { ?uri rdfs:label ?label }
+    } ORDER BY ?uri"""
+
 JUNCTION_STRUCTURES = """
     SELECT DISTINCT ?junction ?label
     WHERE {
@@ -162,7 +193,9 @@ class BondgraphFramework:
     #======================================================
         self.__graph = RdfGraph(NAMESPACES)
         self.__element_templates: dict[str, ElementTemplate] = {}
+        self.__block_templates: dict[str, ElementTemplate] = {}
         self.__domains: dict[str, Domain] = {}
+        self.__signal_domains: dict[str, SignalDomain] = {}
         self.__element_domains: dict[tuple[str, str], ElementTemplate] = {}
         self.__junctions: dict[str, JunctionStructure] = {}
         self.__composite_elements: dict[str, CompositeTemplate] = {}
@@ -212,6 +245,20 @@ class BondgraphFramework:
             self.__element_templates[cast(NamedNode, row['uri']).value] = ElementTemplate.from_rdf_graph(
                                             graph, row['uri'], row['element_class'], # pyright: ignore[reportArgumentType]
                                             row.get('label'), domain, row.get('relation'))   # pyright: ignore[reportArgumentType]
+        self.__signal_domains.update({cast(NamedNode, row['domain']).value: SignalDomain.from_rdf_graph(
+                                        graph, row['domain'], row.get('label'))   # pyright: ignore[reportArgumentType]
+                                      for row in graph.query(SIGNAL_DOMAIN_QUERY)})
+        for row in graph.query(SIGNAL_BLOCK_TEMPLATE_DEFINITIONS):
+            # ?uri ?label ?domain ?relation
+            if (signal_domain := self.__signal_domains.get(cast(NamedNode, row['domain']).value)) is None:
+                self.report_issue(f"Unknown signal domain {row['domain']} for {row['uri']} block")
+                continue
+            try:
+                self.__block_templates[cast(NamedNode, row['uri']).value] = ElementTemplate.from_rdf_graph(
+                                            graph, row['uri'], BGF_SIGNAL_BLOCK,                  # pyright: ignore[reportArgumentType]
+                                            row.get('label'), signal_domain, row.get('relation'))  # pyright: ignore[reportArgumentType]
+            except Issue as issue:
+                self.report_issue(str(issue))
         self.__element_domains.update({
             (element.element_class, element.domain.uri.value): element
                 for element in self.__element_templates.values() if element.domain is not None
@@ -226,6 +273,28 @@ class BondgraphFramework:
                 continue
             self.__composite_elements[row['uri'].value] = CompositeTemplate(row['uri'].value, element, row.get('label')) # pyright: ignore[reportArgumentType]
 
+    def in_unit_system(self, system: str|None) -> 'BondgraphFramework':
+    #=================================================================
+        """The framework with its templates' units in a unit system (UNIT_SYSTEMS); itself for None."""
+        if not system:
+            return self
+        if system not in UNIT_SYSTEMS:
+            raise ValueError(f'Unknown unit system {system!r} (known: {", ".join(UNIT_SYSTEMS)})')
+        variants = self.__dict__.setdefault('_unit_system_variants', {})
+        if system not in variants:
+            variant = object.__new__(BondgraphFramework)
+            BondgraphFramework.__init__(variant)
+            statements = []
+            for statement in self.__graph.statements():
+                term = statement.object
+                if (isLiteral(term) and term.datatype is not None                       # pyright: ignore[reportAttributeAccessIssue]
+                and term.datatype.value == CDT.ucumunit.value):                         # pyright: ignore[reportAttributeAccessIssue]
+                    term = literal(si_ucum_units(term.value), term.datatype)            # pyright: ignore[reportAttributeAccessIssue]
+                statements.append(Triple(statement.subject, statement.predicate, term))
+            variant.add_statements(statements)
+            variants[system] = variant
+        return variants[system]
+
     def element_template(self, element_type: NamedNode, domain_uri: NamedNode|None) -> BondgraphElementTemplate|None:
     #================================================================================================================
         if domain_uri is None:
@@ -235,6 +304,10 @@ class BondgraphFramework:
             return self.__element_templates.get(element_type.value)
         else:
             return self.__element_domains.get((element_type.value, domain_uri.value))
+
+    def block_template(self, block_type: NamedNode) -> ElementTemplate|None:
+    #=======================================================================
+        return self.__block_templates.get(block_type.value)
 
     def junction(self, uri: str) -> JunctionStructure|None:
     #======================================================

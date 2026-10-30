@@ -1,0 +1,45 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# A vessel in SI units: a flow into a node, through a wall resistance into a compliance, and out. The resistance's
+# flow is the inflow, so it gives the node's pressure u_node = u_C + v_in/k (its causality the reverse of how its
+# equation is written). Values are given in litres and kPa and written in cubic metres and Pa; the external pressure
+# comes from a signal input port in kPa. The scale factor's parameter alpha is written as it is named.
+
+:flow_fed_node
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:unitSystem "SI" ;
+    bgf:hasBondElement :Sf_in, :R_w, :C, :Sf_out ;
+    bgf:hasJunctionStructure :J ;
+    bgf:hasSignalBlock :u_ext, :s ;
+    bgf:hasSignalBond :s1, :s2 .
+
+:Sf_in a bgf:HydraulicFlow ; bgf:hasSymbol "v_in" ; bgf:portType "vessel_port" ;
+    bgf:hasVariableName [ bgf:forVariable "u" ; bgf:cellmlName "u_in" ] ;
+    bgf:hasValue "0.2 L/s"^^cdt:ucum .
+:J a bgf:ZeroNode ; bgf:hasSymbol "u_node" .
+:R_w a bgf:HydraulicResistanceNode ; bgf:hasSymbol "v_w" ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasValue "0.5 L2.s-1.J-1"^^cdt:ucum ] .
+:C a bgf:HydraulicComplianceNode ; bgf:hasSymbol "q_C" ; bgf:hasValue "1.2 L"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.1 L2/J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_us" ; bgf:hasValue "1 L"^^cdt:ucum ] .
+:Sf_out a bgf:HydraulicFlow ; bgf:hasSymbol "v_out" ; bgf:portType "vessel_port" ;
+    bgf:hasValue "0.1 L/s"^^cdt:ucum .
+
+:b1 bgf:hasSource :Sf_in ; bgf:hasTarget :J .
+:b2 bgf:hasSource :J ; bgf:hasTarget :R_w .
+:b3 bgf:hasSource :R_w ; bgf:hasTarget :C .
+:b4 bgf:hasSource :C ; bgf:hasTarget :Sf_out .
+
+:u_ext a bgf:SignalInputPort ; bgf:hasSymbol "u_ext" ; bgf:portType "external_pressure_port" ;
+    bgf:hasValue "0.5 kPa"^^cdt:ucum .
+:s a bgf:SaturatingScale ; bgf:hasSymbol "s" ;
+    bgf:parameterValue [ bgf:varName "alpha" ; bgf:hasSymbol "alpha" ; bgf:hasValue "0.5 1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_half" ; bgf:hasSymbol "q_half" ; bgf:hasValue "1 L"^^cdt:ucum ] .
+
+:s1 a bgf:SignalBond ; bgf:hasSource :u_ext ; bgf:hasTarget :C ; bgf:signalInput "u_ext" .
+:s2 a bgf:SignalBond ; bgf:hasSource :C ; bgf:hasTarget :s .

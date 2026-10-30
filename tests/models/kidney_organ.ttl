@@ -1,0 +1,276 @@
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix tpl: <https://bg-rdf.org/templates/> .
+
+@prefix : <#> .
+
+# Kidney (BVC-RAAS6): glomerular filtration from the renal bed's glomerular pressure into the proximal tubule (a
+# stiffening vessel), Kedem-Katchalsky water and Na transport into the tubule's epithelium and water out to the
+# peritubular capillaries, an aldosterone-scaled Na/K-ATPase pumping the epithelium's Na into the peritubular
+# blood, urine through the ureter against the bladder's pressure, and the Na carried by the renal blood flows
+# (afferent, efferent, renal vein) from and back to the plasma.
+
+:BVC_Kidney_Beulens2026_v02
+    a bgf:BondgraphModel ;
+    bgf:usesTemplate tpl:chemical.ttl, tpl:hydraulic.ttl, tpl:signal.ttl ;
+    bgf:hasBondElement :u_gl, :R_gl, :pt_W, :Jw_pt, :ptEpi_W, :Jw_ptBl, :u_ptc, :Se_ureter, :R_ure, :u_bl,
+        :pl_Na, :cv_aff, :gl_Na, :cv_gl, :cv_eff, :pt_Na, :Js_pt, :ptEpi_Na, :NKE, :ptc_Na, :cv_rv, :cv_ure ;
+    bgf:hasJunctionStructure :J_ure ;
+    bgf:hasSignalBlock :q_gl, :q_ptc, :v_aff, :v_eff, :v_rv, :c_pl_Na, :q_aldo, :aldo_scale,
+        :sigma_pt, :q_ptEpi_K, :q_ptEpi_X, :c_K_bl, :Hct,
+        :c_pt_Na, :c_ptEpi_Na, :c_ptEpi_K, :c_gl_Na, :c_ptc_Na,
+        :u_pt_osmotic, :u_ptc_osmotic, :osm_ptEpi_Na, :osm_ptEpi_NaK, :osm_ptEpi, :u_ptEpi_osmotic,
+        :FF_blood, :f_plasma, :FF ;
+    bgf:hasSignalBond :s01, :s02, :s03, :s04, :s05, :s06, :s07, :s08, :s09, :s10,
+        :s11, :s12, :s13, :s14, :s15, :s16, :s17, :s18, :s19, :s20,
+        :s21, :s22, :s23, :s24, :s25, :s26, :s27, :s28, :s29, :s30,
+        :s31, :s32, :s33, :s34, :s35, :s36, :s37, :s38, :s39, :s40,
+        :s41, :s42, :s43, :s44, :s45, :s46, :s47, :s48, :s49 .
+
+#===============================================================================
+# Water
+
+:u_gl a bgf:HydraulicPotential ;
+    bgf:hasSymbol "u_gl" ;
+    bgf:portType "renal_bed_port" ; bgf:portVariables "u" ; bgf:portDirection "entrance" ; bgf:portOrder 1 ;
+    bgf:hasValue "11.7569 kPa"^^cdt:ucum .
+
+:R_gl a bgf:RectifyingHydraulicResistanceNode ;
+    bgf:hasSymbol "v_gl_W" ;
+    bgf:portType "glomerular_filtration_port" ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasSymbol "K_f" ; bgf:hasValue "0.000254357 L2.s-1.J-1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_0" ; bgf:hasSymbol "pi_onc" ; bgf:hasValue "3.33305 kPa"^^cdt:ucum ] .
+
+:pt_W a bgf:HydraulicElasticStorageNode ;
+    bgf:hasSymbol "q_pt_W" ;
+    bgf:hasValue "0.199755 L"^^cdt:ucum ;
+    bgf:hasVariableName [ bgf:forVariable "u" ; bgf:cellmlName "u_pt_W" ] ;
+    bgf:parameterValue [ bgf:varName "E" ; bgf:hasSymbol "E_pt" ; bgf:hasValue "1 J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_hat" ; bgf:hasSymbol "U_pt_W" ; bgf:hasValue "0.1 L"^^cdt:ucum ] ,
+                       [ bgf:varName "q_bar" ; bgf:hasSymbol "L_pt_W" ; bgf:hasValue "0.5 L"^^cdt:ucum ] .
+
+:Jw_pt a bgf:KedemKatchalskyWaterFluxNode ;
+    bgf:hasSymbol "v_pt_W" ;
+    bgf:parameterValue [ bgf:varName "Lp" ; bgf:hasSymbol "Lp_pt" ; bgf:hasValue "7.30797e-06 L2.s-1.J-1"^^cdt:ucum ] .
+
+:ptEpi_W a bgf:HydraulicElasticStorageNode ;
+    bgf:hasSymbol "q_ptEpi_W" ;
+    bgf:hasValue "0.1 L"^^cdt:ucum ;
+    bgf:hasVariableName [ bgf:forVariable "u" ; bgf:cellmlName "u_ptEpi_W" ] ;
+    bgf:parameterValue [ bgf:varName "E" ; bgf:hasSymbol "E_ptEpi" ; bgf:hasValue "1 J"^^cdt:ucum ] ,
+                       [ bgf:varName "q_hat" ; bgf:hasSymbol "U_ptEpi_W" ; bgf:hasValue "0.1 L"^^cdt:ucum ] ,
+                       [ bgf:varName "q_bar" ; bgf:hasSymbol "L_ptEpi_W" ; bgf:hasValue "0.3 L"^^cdt:ucum ] .
+
+:Jw_ptBl a bgf:KedemKatchalskyWaterFluxNode ;
+    bgf:hasSymbol "v_ptBl_W" ;
+    bgf:portType "peritubular_uptake_port" ;
+    bgf:parameterValue [ bgf:varName "Lp" ; bgf:hasSymbol "Lp_ptBl" ; bgf:hasValue "7.97772e-05 L2.s-1.J-1"^^cdt:ucum ] ,
+                       [ bgf:varName "sigma" ; bgf:hasSymbol "sigma_ptBl" ; bgf:hasValue "1 1"^^cdt:ucum ] .
+
+:u_ptc a bgf:HydraulicPotential ;
+    bgf:hasSymbol "u_ptc" ;
+    bgf:portType "renal_bed_port" ; bgf:portVariables "u" ; bgf:portDirection "entrance" ; bgf:portOrder 2 ;
+    bgf:hasValue "3.16433 kPa"^^cdt:ucum .
+
+# urine: the tubule's pressure and the ureter's together push against the bladder's
+:Se_ureter a bgf:HydraulicPotential ;
+    bgf:hasSymbol "u_ureter" ;
+    bgf:hasValue "3.92266 kPa"^^cdt:ucum .
+
+:J_ure a bgf:OneNode .
+
+:R_ure a bgf:RectifyingHydraulicResistor ;
+    bgf:hasSymbol "v_ure_W" ;
+    bgf:portType "urine_port" ; bgf:portOrder 1 ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasSymbol "k_ure" ; bgf:hasValue "6.00903e-06 L2.s-1.J-1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_0" ; bgf:hasSymbol "u_0_ure" ; bgf:hasValue "0 kPa"^^cdt:ucum ] .
+
+:u_bl a bgf:HydraulicPotential ;
+    bgf:hasSymbol "u_bl" ;
+    bgf:portType "bladder_pressure_port" ; bgf:portVariables "u" ; bgf:portDirection "entrance" ;
+    bgf:hasValue "0.480526 kPa"^^cdt:ucum .
+
+:w1 bgf:hasSource :u_gl ; bgf:hasTarget :R_gl .
+:w2 bgf:hasSource :R_gl ; bgf:hasTarget :pt_W .
+:w3 bgf:hasSource :pt_W ; bgf:hasTarget :Jw_pt .
+:w4 bgf:hasSource :Jw_pt ; bgf:hasTarget :ptEpi_W .
+:w5 bgf:hasSource :ptEpi_W ; bgf:hasTarget :Jw_ptBl .
+:w6 bgf:hasSource :Jw_ptBl ; bgf:hasTarget :u_ptc .
+:w7 bgf:hasSource :pt_W ; bgf:hasTarget :J_ure .
+:w8 bgf:hasSource :Se_ureter ; bgf:hasTarget :J_ure .
+:w9 bgf:hasSource :J_ure ; bgf:hasTarget :R_ure .
+:w10 bgf:hasSource :J_ure ; bgf:hasTarget :u_bl .
+
+#===============================================================================
+# Na
+
+# the plasma: the renal vein returns Na to it and the afferent arteriole takes Na from it; its flow is the
+# kidney's net return
+:pl_Na a bgf:ChemicalPotential ;
+    bgf:hasSymbol "v_kid_Na" ;
+    bgf:hasVariableName [ bgf:forVariable "u" ; bgf:cellmlName "u_pl_Na" ] ;
+    bgf:portType "plasma_Na_flux_port" ; bgf:portVariables "v" ; bgf:portDirection "exit" ;
+    bgf:hasValue "0 J/mol"^^cdt:ucum .
+
+:cv_aff a bgf:ConvectiveSoluteFluxNode ; bgf:hasSymbol "v_aff_Na" .
+
+:gl_Na a bgf:ChemicalStorageNode ;
+    bgf:hasSymbol "q_gl_Na" ;
+    bgf:hasValue "0.000444596 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasSymbol "K_gl_Na" ; bgf:hasValue "1 mol-1"^^cdt:ucum ] .
+
+:cv_gl a bgf:ConvectiveSoluteFluxNode ; bgf:hasSymbol "v_gl_Na" .
+
+:cv_eff a bgf:ConvectiveSoluteFluxNode ; bgf:hasSymbol "v_eff_Na" .
+
+:pt_Na a bgf:ChemicalStorageNode ;
+    bgf:hasSymbol "q_pt_Na" ;
+    bgf:hasValue "0.013026 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasSymbol "K_pt_Na" ; bgf:hasValue "1 mol-1"^^cdt:ucum ] .
+
+:Js_pt a bgf:KedemKatchalskySoluteFluxNode ;
+    bgf:hasSymbol "v_pt_Na" ;
+    bgf:parameterValue [ bgf:varName "omega" ; bgf:hasSymbol "P_pt_Na" ; bgf:hasValue "0.00471462 L/s"^^cdt:ucum ] .
+
+:ptEpi_Na a bgf:ChemicalStorageNode ;
+    bgf:hasSymbol "q_ptEpi_Na" ;
+    bgf:hasValue "0.0015 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasSymbol "K_ptEpi_Na" ; bgf:hasValue "1 mol-1"^^cdt:ucum ] .
+
+:NKE a bgf:NKEPumpNode ;
+    bgf:hasSymbol "v_ptEpi_NKE" ;
+    bgf:parameterValue [ bgf:varName "k_NKE" ; bgf:hasSymbol "k_ptEpi_NKE" ; bgf:hasValue "0.00210127 mol/s"^^cdt:ucum ] ,
+                       [ bgf:varName "K_ATP" ; bgf:hasSymbol "K_ATP" ; bgf:hasValue "310646000 1"^^cdt:ucum ] ,
+                       [ bgf:varName "K_Na" ; bgf:hasSymbol "K_Na" ; bgf:hasValue "1 L/mol"^^cdt:ucum ] ,
+                       [ bgf:varName "K_K" ; bgf:hasSymbol "K_K" ; bgf:hasValue "1 L/mol"^^cdt:ucum ] ,
+                       [ bgf:varName "u_e" ; bgf:hasSymbol "u_ptEpi_e" ; bgf:hasValue "-0.04 J/C"^^cdt:ucum ] ,
+                       [ bgf:varName "RT" ; bgf:hasValue "2557 J/mol"^^cdt:ucum ] .
+
+:ptc_Na a bgf:ChemicalStorageNode ;
+    bgf:hasSymbol "q_ptc_Na" ;
+    bgf:hasValue "0.00416789 mol"^^cdt:ucum ;
+    bgf:parameterValue [ bgf:varName "K" ; bgf:hasSymbol "K_ptc_Na" ; bgf:hasValue "1 mol-1"^^cdt:ucum ] .
+
+:cv_rv a bgf:ConvectiveSoluteFluxNode ; bgf:hasSymbol "v_rv_Na" .
+
+:cv_ure a bgf:ConvectiveSoluteFluxNode ;
+    bgf:hasSymbol "v_ure_Na" ;
+    bgf:portType "urine_port" ; bgf:portOrder 2 .
+
+:n1 bgf:hasSource :pl_Na ; bgf:hasTarget :cv_aff .
+:n2 bgf:hasSource :cv_aff ; bgf:hasTarget :gl_Na .
+:n3 bgf:hasSource :gl_Na ; bgf:hasTarget :cv_gl .
+:n4 bgf:hasSource :cv_gl ; bgf:hasTarget :pt_Na .
+:n5 bgf:hasSource :gl_Na ; bgf:hasTarget :cv_eff .
+:n6 bgf:hasSource :cv_eff ; bgf:hasTarget :ptc_Na .
+:n7 bgf:hasSource :pt_Na ; bgf:hasTarget :Js_pt .
+:n8 bgf:hasSource :Js_pt ; bgf:hasTarget :ptEpi_Na .
+:n9 bgf:hasSource :ptEpi_Na ; bgf:hasTarget :NKE .
+:n10 bgf:hasSource :NKE ; bgf:hasTarget :ptc_Na .
+:n11 bgf:hasSource :ptc_Na ; bgf:hasTarget :cv_rv .
+:n12 bgf:hasSource :cv_rv ; bgf:hasTarget :pl_Na .
+:n13 bgf:hasSource :pt_Na ; bgf:hasTarget :cv_ure .
+
+#===============================================================================
+# Signals: the renal bed's volumes and flows, plasma Na and aldosterone from outside; shared constants
+
+:q_gl a bgf:SignalInputPort ; bgf:hasSymbol "q_gl" ;
+    bgf:portType "renal_bed_port" ; bgf:portOrder 3 ; bgf:hasValue "0.00317569 L"^^cdt:ucum .
+:q_ptc a bgf:SignalInputPort ; bgf:hasSymbol "q_ptc" ;
+    bgf:portType "renal_bed_port" ; bgf:portOrder 4 ; bgf:hasValue "0.0297465 L"^^cdt:ucum .
+:v_aff a bgf:SignalInputPort ; bgf:hasSymbol "v_aff" ;
+    bgf:portType "renal_bed_port" ; bgf:portOrder 5 ; bgf:hasValue "0.018 L/s"^^cdt:ucum .
+:v_eff a bgf:SignalInputPort ; bgf:hasSymbol "v_eff" ;
+    bgf:portType "renal_bed_port" ; bgf:portOrder 6 ; bgf:hasValue "0.0161388 L/s"^^cdt:ucum .
+:v_rv a bgf:SignalInputPort ; bgf:hasSymbol "v_rv" ;
+    bgf:portType "renal_bed_port" ; bgf:portOrder 7 ; bgf:hasValue "0.0179727 L/s"^^cdt:ucum .
+:c_pl_Na a bgf:SignalInputPort ; bgf:hasSymbol "c_pl_Na" ;
+    bgf:portType "plasma_Na_port" ; bgf:hasValue "0.14 mol/L"^^cdt:ucum .
+:q_aldo a bgf:SignalInputPort ; bgf:hasSymbol "q_aldo" ;
+    bgf:portType "aldosterone_port" ; bgf:hasValue "2.1133e-08 mol"^^cdt:ucum .
+
+:aldo_scale a bgf:SaturatingScale ;
+    bgf:hasSymbol "aldo_scale" ;
+    bgf:parameterValue [ bgf:varName "alpha" ; bgf:hasSymbol "alpha_aldo" ; bgf:hasValue "1 1"^^cdt:ucum ] ,
+                       [ bgf:varName "u_half" ; bgf:hasSymbol "aldo_healthy" ; bgf:hasValue "1.13e-09 mol"^^cdt:ucum ] .
+
+:sigma_pt a bgf:Constant ; bgf:hasSymbol "sigma_pt" ; bgf:hasValue "0.7 1"^^cdt:ucum .
+:q_ptEpi_K a bgf:Constant ; bgf:hasSymbol "q_ptEpi_K" ; bgf:hasValue "0.00725 mol"^^cdt:ucum .
+:q_ptEpi_X a bgf:Constant ; bgf:hasSymbol "q_ptEpi_X" ; bgf:hasValue "0.01675 mol"^^cdt:ucum .
+:c_K_bl a bgf:Constant ; bgf:hasSymbol "c_K_bl" ; bgf:hasValue "0.0045 mol/L"^^cdt:ucum .
+:Hct a bgf:Constant ; bgf:hasSymbol "Hct" ; bgf:hasValue "0.45 1"^^cdt:ucum .
+
+:c_pt_Na a bgf:Concentration ; bgf:hasSymbol "c_pt_Na" .
+:c_ptEpi_Na a bgf:Concentration ; bgf:hasSymbol "c_ptEpi_Na" .
+:c_ptEpi_K a bgf:Concentration ; bgf:hasSymbol "c_ptEpi_K" .
+:c_gl_Na a bgf:Concentration ; bgf:hasSymbol "c_gl_Na" .
+:c_ptc_Na a bgf:Concentration ; bgf:hasSymbol "c_ptc_Na" .
+
+:u_pt_osmotic a bgf:VantHoff ; bgf:hasSymbol "u_pt_osmotic" ;
+    bgf:parameterValue [ bgf:varName "phi" ; bgf:hasSymbol "phi_pt_Na" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+:u_ptc_osmotic a bgf:VantHoff ; bgf:hasSymbol "u_ptc_osmotic" ;
+    bgf:parameterValue [ bgf:varName "phi" ; bgf:hasSymbol "phi_ptc_Na" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+# the epithelium's osmoles: 2 per NaCl, its K and its impermeant solutes
+:osm_ptEpi_Na a bgf:Gain ; bgf:hasSymbol "osm_ptEpi_Na" ;
+    bgf:parameterValue [ bgf:varName "k" ; bgf:hasSymbol "phi_ptEpi_Na" ; bgf:hasValue "2 1"^^cdt:ucum ] .
+:osm_ptEpi_NaK a bgf:Sum ; bgf:hasSymbol "osm_ptEpi_NaK" .
+:osm_ptEpi a bgf:Sum ; bgf:hasSymbol "osm_ptEpi" .
+:u_ptEpi_osmotic a bgf:OsmoticPressure ; bgf:hasSymbol "u_ptEpi_osmotic" ;
+    bgf:parameterValue [ bgf:varName "phi" ; bgf:hasSymbol "phi_ptEpi" ; bgf:hasValue "1 1"^^cdt:ucum ] .
+
+# filtration fraction: the filtrate over the renal plasma flow (1 - Hct) v_aff
+:FF_blood a bgf:Ratio ; bgf:hasSymbol "FF_blood" .
+:f_plasma a bgf:LinearMap ; bgf:hasSymbol "f_plasma" ;
+    bgf:parameterValue [ bgf:varName "a" ; bgf:hasSymbol "f_plasma_0" ; bgf:hasValue "1 1"^^cdt:ucum ] ,
+                       [ bgf:varName "b" ; bgf:hasSymbol "f_plasma_Hct" ; bgf:hasValue "-1 1"^^cdt:ucum ] .
+:FF a bgf:Ratio ; bgf:hasSymbol "FF" .
+
+:s01 a bgf:SignalBond ; bgf:hasSource :pt_Na ; bgf:hasTarget :c_pt_Na ; bgf:signalInput "q_s" .
+:s02 a bgf:SignalBond ; bgf:hasSource :pt_W ; bgf:hasTarget :c_pt_Na ; bgf:signalInput "q_w" .
+:s03 a bgf:SignalBond ; bgf:hasSource :ptEpi_Na ; bgf:hasTarget :c_ptEpi_Na ; bgf:signalInput "q_s" .
+:s04 a bgf:SignalBond ; bgf:hasSource :ptEpi_W ; bgf:hasTarget :c_ptEpi_Na ; bgf:signalInput "q_w" .
+:s05 a bgf:SignalBond ; bgf:hasSource :q_ptEpi_K ; bgf:hasTarget :c_ptEpi_K ; bgf:signalInput "q_s" .
+:s06 a bgf:SignalBond ; bgf:hasSource :ptEpi_W ; bgf:hasTarget :c_ptEpi_K ; bgf:signalInput "q_w" .
+:s07 a bgf:SignalBond ; bgf:hasSource :gl_Na ; bgf:hasTarget :c_gl_Na ; bgf:signalInput "q_s" .
+:s08 a bgf:SignalBond ; bgf:hasSource :q_gl ; bgf:hasTarget :c_gl_Na ; bgf:signalInput "q_w" .
+:s09 a bgf:SignalBond ; bgf:hasSource :ptc_Na ; bgf:hasTarget :c_ptc_Na ; bgf:signalInput "q_s" .
+:s10 a bgf:SignalBond ; bgf:hasSource :q_ptc ; bgf:hasTarget :c_ptc_Na ; bgf:signalInput "q_w" .
+:s11 a bgf:SignalBond ; bgf:hasSource :c_pt_Na ; bgf:hasTarget :u_pt_osmotic .
+:s12 a bgf:SignalBond ; bgf:hasSource :c_ptc_Na ; bgf:hasTarget :u_ptc_osmotic .
+:s13 a bgf:SignalBond ; bgf:hasSource :ptEpi_Na ; bgf:hasTarget :osm_ptEpi_Na .
+:s14 a bgf:SignalBond ; bgf:hasSource :osm_ptEpi_Na ; bgf:hasTarget :osm_ptEpi_NaK ; bgf:signalInput "u_1" .
+:s15 a bgf:SignalBond ; bgf:hasSource :q_ptEpi_K ; bgf:hasTarget :osm_ptEpi_NaK ; bgf:signalInput "u_2" .
+:s16 a bgf:SignalBond ; bgf:hasSource :osm_ptEpi_NaK ; bgf:hasTarget :osm_ptEpi ; bgf:signalInput "u_1" .
+:s17 a bgf:SignalBond ; bgf:hasSource :q_ptEpi_X ; bgf:hasTarget :osm_ptEpi ; bgf:signalInput "u_2" .
+:s18 a bgf:SignalBond ; bgf:hasSource :osm_ptEpi ; bgf:hasTarget :u_ptEpi_osmotic ; bgf:signalInput "q_s" .
+:s19 a bgf:SignalBond ; bgf:hasSource :ptEpi_W ; bgf:hasTarget :u_ptEpi_osmotic ; bgf:signalInput "q_w" .
+:s20 a bgf:SignalBond ; bgf:hasSource :u_pt_osmotic ; bgf:hasTarget :Jw_pt ; bgf:signalInput "Pi_in" .
+:s21 a bgf:SignalBond ; bgf:hasSource :u_ptEpi_osmotic ; bgf:hasTarget :Jw_pt ; bgf:signalInput "Pi_out" .
+:s22 a bgf:SignalBond ; bgf:hasSource :sigma_pt ; bgf:hasTarget :Jw_pt ; bgf:signalInput "sigma" .
+:s23 a bgf:SignalBond ; bgf:hasSource :u_ptEpi_osmotic ; bgf:hasTarget :Jw_ptBl ; bgf:signalInput "Pi_in" .
+:s24 a bgf:SignalBond ; bgf:hasSource :u_ptc_osmotic ; bgf:hasTarget :Jw_ptBl ; bgf:signalInput "Pi_out" .
+:s25 a bgf:SignalBond ; bgf:hasSource :c_pt_Na ; bgf:hasTarget :Js_pt ; bgf:signalInput "c_in" .
+:s26 a bgf:SignalBond ; bgf:hasSource :c_ptEpi_Na ; bgf:hasTarget :Js_pt ; bgf:signalInput "c_out" .
+:s27 a bgf:SignalBond ; bgf:hasSource :Jw_pt ; bgf:hasTarget :Js_pt ; bgf:signalInput "Jv" .
+:s28 a bgf:SignalBond ; bgf:hasSource :sigma_pt ; bgf:hasTarget :Js_pt ; bgf:signalInput "sigma" .
+:s29 a bgf:SignalBond ; bgf:hasSource :c_pl_Na ; bgf:hasTarget :cv_aff ; bgf:signalInput "c" .
+:s30 a bgf:SignalBond ; bgf:hasSource :v_aff ; bgf:hasTarget :cv_aff ; bgf:signalInput "Jv" .
+:s31 a bgf:SignalBond ; bgf:hasSource :c_gl_Na ; bgf:hasTarget :cv_gl ; bgf:signalInput "c" .
+:s32 a bgf:SignalBond ; bgf:hasSource :R_gl ; bgf:hasTarget :cv_gl ; bgf:signalInput "Jv" .
+:s33 a bgf:SignalBond ; bgf:hasSource :c_gl_Na ; bgf:hasTarget :cv_eff ; bgf:signalInput "c" .
+:s34 a bgf:SignalBond ; bgf:hasSource :v_eff ; bgf:hasTarget :cv_eff ; bgf:signalInput "Jv" .
+:s35 a bgf:SignalBond ; bgf:hasSource :c_ptc_Na ; bgf:hasTarget :cv_rv ; bgf:signalInput "c" .
+:s36 a bgf:SignalBond ; bgf:hasSource :v_rv ; bgf:hasTarget :cv_rv ; bgf:signalInput "Jv" .
+:s37 a bgf:SignalBond ; bgf:hasSource :c_pt_Na ; bgf:hasTarget :cv_ure ; bgf:signalInput "c" .
+:s38 a bgf:SignalBond ; bgf:hasSource :R_ure ; bgf:hasTarget :cv_ure ; bgf:signalInput "Jv" .
+:s39 a bgf:SignalBond ; bgf:hasSource :c_ptEpi_Na ; bgf:hasTarget :NKE ; bgf:signalInput "c_Na_i" .
+:s40 a bgf:SignalBond ; bgf:hasSource :c_ptc_Na ; bgf:hasTarget :NKE ; bgf:signalInput "c_Na_o" .
+:s41 a bgf:SignalBond ; bgf:hasSource :c_ptEpi_K ; bgf:hasTarget :NKE ; bgf:signalInput "c_K_i" .
+:s42 a bgf:SignalBond ; bgf:hasSource :c_K_bl ; bgf:hasTarget :NKE ; bgf:signalInput "c_K_o" .
+:s43 a bgf:SignalBond ; bgf:hasSource :q_aldo ; bgf:hasTarget :aldo_scale .
+:s44 a bgf:SignalBond ; bgf:hasSource :aldo_scale ; bgf:hasTarget :NKE ; bgf:modulates "k_NKE" .
+:s45 a bgf:SignalBond ; bgf:hasSource :Hct ; bgf:hasTarget :f_plasma .
+:s46 a bgf:SignalBond ; bgf:hasSource :R_gl ; bgf:hasTarget :FF_blood ; bgf:signalInput "u_1" .
+:s47 a bgf:SignalBond ; bgf:hasSource :v_aff ; bgf:hasTarget :FF_blood ; bgf:signalInput "u_2" .
+:s48 a bgf:SignalBond ; bgf:hasSource :FF_blood ; bgf:hasTarget :FF ; bgf:signalInput "u_1" .
+:s49 a bgf:SignalBond ; bgf:hasSource :f_plasma ; bgf:hasTarget :FF ; bgf:signalInput "u_2" .
